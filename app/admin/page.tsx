@@ -11,6 +11,35 @@ interface Asset {
   size: number;
   type: string;
   uploadedAt: number;
+  downloadUrl?: string;
+  inlineUrl?: string;
+  mediaType?: "IMAGE" | "VIDEO" | "PDF" | "OTHER";
+  pipelines?: {
+    itemId: string;
+    groupId: string;
+    slug: string;
+    displayName: string;
+    position: number;
+    active: boolean;
+  }[];
+}
+
+interface MediaGroupItem {
+  id: string;
+  position: number;
+  enabled: boolean;
+  asset: Asset;
+}
+
+interface MediaGroup {
+  id: string;
+  slug: string;
+  displayName: string;
+  controlKind: "PAGE_SEQUENCE" | "VIDEO";
+  sortOrder: number;
+  activeIndex: number;
+  activeItemId: string | null;
+  items: MediaGroupItem[];
 }
 
 interface UploadingFile {
@@ -20,6 +49,15 @@ interface UploadingFile {
 }
 
 type PipelineKey = "bhrt" | "video" | "wli" | "usecase";
+
+const pipelineSlug: Record<PipelineKey, string> = {
+  bhrt: "bhrt",
+  video: "video",
+  wli: "what-lies-inside",
+  usecase: "use-case",
+};
+
+const broadcastChannelName = "rubenius-content";
 
 export default function AdminPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -70,38 +108,51 @@ export default function AdminPage() {
   const [draggedSlide, setDraggedSlide] = useState<{ pipeline: PipelineKey; index: number } | null>(null);
   const [dragOverSlideIndex, setDragOverSlideIndex] = useState<number | null>(null);
 
-  // Two-way sync: active asset IDs for pipelines
-  const [activeBhrtAssetId, setActiveBhrtAssetId] = useState<string | null>(null);
-  const [activeVideoAssetId, setActiveVideoAssetId] = useState<string | null>(null);
-  const [activeWliAssetId, setActiveWliAssetId] = useState<string | null>(null);
-  const [activeUsecaseAssetId, setActiveUsecaseAssetId] = useState<string | null>(null);
+  const [groupItems, setGroupItems] = useState<Record<PipelineKey, MediaGroupItem[]>>({
+    bhrt: [],
+    video: [],
+    wli: [],
+    usecase: [],
+  });
 
-  useEffect(() => {
-    if (assets.length > 0) {
-      const bhrtUrl = bhrtActiveIdx !== -1 ? bhrtSlides[bhrtActiveIdx] : null;
-      setActiveBhrtAssetId(assets.find((a) => a.url === bhrtUrl)?.id ?? null);
+  function showToast(message: string, type: "success" | "error") {
+    setToast({ message, type });
+  }
 
-      const videoUrl = videoActiveIdx !== -1 ? videoSlides[videoActiveIdx] : null;
-      setActiveVideoAssetId(assets.find((a) => a.url === videoUrl)?.id ?? null);
+  const publishLocalUpdate = (payload: unknown) => {
+    if (typeof window === "undefined" || !("BroadcastChannel" in window)) return;
+    const channel = new BroadcastChannel(broadcastChannelName);
+    channel.postMessage({ event: "content-updated", payload });
+    channel.close();
+  };
 
-      const wliUrl = wliActiveIdx !== -1 ? wliSlides[wliActiveIdx] : null;
-      setActiveWliAssetId(assets.find((a) => a.url === wliUrl)?.id ?? null);
+  const patchPipeline = async (pipeline: PipelineKey, body: unknown) => {
+    const response = await fetch(`/api/media-groups/${pipelineSlug[pipeline]}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
 
-      const usecaseUrl = usecaseActiveIdx !== -1 ? usecaseSlides[usecaseActiveIdx] : null;
-      setActiveUsecaseAssetId(assets.find((a) => a.url === usecaseUrl)?.id ?? null);
-    } else {
-      setActiveBhrtAssetId(null);
-      setActiveVideoAssetId(null);
-      setActiveWliAssetId(null);
-      setActiveUsecaseAssetId(null);
+    if (!response.ok) {
+      throw new Error("Pipeline update failed");
     }
-  }, [
-    assets,
-    bhrtSlides, bhrtActiveIdx,
-    videoSlides, videoActiveIdx,
-    wliSlides, wliActiveIdx,
-    usecaseSlides, usecaseActiveIdx,
-  ]);
+
+    return response;
+  };
+
+  const applyGroups = (groups: MediaGroup[]) => {
+    const nextItems = { bhrt: [], video: [], wli: [], usecase: [] } as Record<PipelineKey, MediaGroupItem[]>;
+
+    for (const pipeline of Object.keys(pipelineSlug) as PipelineKey[]) {
+      const group = groups.find((item) => item.slug === pipelineSlug[pipeline]);
+      const items = group?.items.filter((item) => item.enabled) ?? [];
+      nextItems[pipeline] = items;
+      setSlides(pipeline, () => items.map((item) => item.asset.inlineUrl ?? item.asset.url));
+      setActiveIdx(pipeline, items.length > 0 ? group?.activeIndex ?? 0 : -1);
+    }
+
+    setGroupItems(nextItems);
+  };
 
   const getSlides = (pipeline: PipelineKey) => {
     if (pipeline === "bhrt") return bhrtSlides;
@@ -131,21 +182,27 @@ export default function AdminPage() {
     else setUsecaseActiveIdx(idx as number);
   };
 
-  const handleTogglePipelineAsset = (pipeline: PipelineKey, asset: Asset) => {
+  const handleTogglePipelineAsset = async (pipeline: PipelineKey, asset: Asset) => {
     const slides = getSlides(pipeline);
-    const activeIdx = getActiveIdx(pipeline);
-    const isAlreadyActive = activeIdx !== -1 && slides[activeIdx] === asset.url;
+    const existingItemIndex = groupItems[pipeline].findIndex((item) => item.asset.id === asset.id);
 
-    if (isAlreadyActive) {
-      setActiveIdx(pipeline, -1);
-    } else {
-      const existingIdx = slides.indexOf(asset.url);
-      if (existingIdx !== -1) {
-        setActiveIdx(pipeline, existingIdx);
+    try {
+      if (existingItemIndex !== -1) {
+        setActiveIdx(pipeline, existingItemIndex);
+        await patchPipeline(pipeline, {
+          activeIndex: existingItemIndex,
+          activeItemId: groupItems[pipeline][existingItemIndex]?.id ?? null,
+        });
       } else {
         setSlides(pipeline, (prev) => [...prev, asset.url]);
         setActiveIdx(pipeline, slides.length);
+        await patchPipeline(pipeline, { addAssetId: asset.id });
       }
+
+      publishLocalUpdate({ groupId: pipelineSlug[pipeline], mediaId: asset.id });
+      await fetchGroups();
+    } catch {
+      showToast("Unable to update pipeline", "error");
     }
   };
 
@@ -153,7 +210,7 @@ export default function AdminPage() {
     setDraggedSlide({ pipeline, index });
   };
 
-  const handleSlideDragOver = (e: any, index: number) => {
+  const handleSlideDragOver = (e: DragEvent<HTMLDivElement>, index: number) => {
     e.preventDefault();
     setDragOverSlideIndex(index);
   };
@@ -163,7 +220,7 @@ export default function AdminPage() {
     setDragOverSlideIndex(null);
   };
 
-  const handleSlideDrop = (pipeline: PipelineKey, targetIndex: number) => {
+  const handleSlideDrop = async (pipeline: PipelineKey, targetIndex: number) => {
     if (!draggedSlide || draggedSlide.pipeline !== pipeline) return;
     const sourceIndex = draggedSlide.index;
     if (sourceIndex === targetIndex) return;
@@ -176,20 +233,41 @@ export default function AdminPage() {
     });
 
     const activeIndex = getActiveIdx(pipeline);
+    let nextActiveIndex = activeIndex;
+
     if (activeIndex === sourceIndex) {
+      nextActiveIndex = targetIndex;
       setActiveIdx(pipeline, targetIndex);
     } else if (activeIndex > sourceIndex && activeIndex <= targetIndex) {
+      nextActiveIndex = activeIndex - 1;
       setActiveIdx(pipeline, activeIndex - 1);
     } else if (activeIndex < sourceIndex && activeIndex >= targetIndex) {
+      nextActiveIndex = activeIndex + 1;
       setActiveIdx(pipeline, activeIndex + 1);
     }
 
     handleSlideDragEnd();
+
+    const nextItems = [...groupItems[pipeline]];
+    const [movedItem] = nextItems.splice(sourceIndex, 1);
+    if (movedItem) nextItems.splice(targetIndex, 0, movedItem);
+
+    try {
+      await patchPipeline(pipeline, {
+        itemIds: nextItems.map((item) => item.id),
+        activeIndex: nextActiveIndex,
+        activeItemId: nextItems[nextActiveIndex]?.id ?? null,
+      });
+      publishLocalUpdate({ groupId: pipelineSlug[pipeline] });
+      await fetchGroups();
+    } catch {
+      showToast("Unable to save slide order", "error");
+    }
   };
 
   const fetchAssets = async () => {
     try {
-      const res = await fetch("/api/upload");
+      const res = await fetch("/api/media");
       if (!res.ok) throw new Error("Failed to load assets");
       const data = (await res.json()) as Asset[];
       setAssets(data);
@@ -200,13 +278,31 @@ export default function AdminPage() {
     }
   };
 
+  const fetchGroups = async () => {
+    const res = await fetch("/api/media-groups");
+    if (!res.ok) throw new Error("Failed to load media groups");
+    const data = (await res.json()) as MediaGroup[];
+    applyGroups(data);
+  };
+
   useEffect(() => {
-    void fetchAssets();
+    const timer = window.setTimeout(() => {
+      void Promise.all([fetchAssets(), fetchGroups()]).finally(() => setLoading(false));
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
-  const showToast = (message: string, type: "success" | "error") => {
-    setToast({ message, type });
-  };
+  useEffect(() => {
+    if (!("BroadcastChannel" in window)) return;
+
+    const channel = new BroadcastChannel(broadcastChannelName);
+    channel.onmessage = () => {
+      void Promise.all([fetchAssets(), fetchGroups()]);
+    };
+
+    return () => channel.close();
+  }, []);
 
   useEffect(() => {
     if (toast) {
@@ -227,14 +323,11 @@ export default function AdminPage() {
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this asset?")) return;
     try {
-      const res = await fetch("/api/upload", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
+      const res = await fetch(`/api/media/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete asset");
       showToast("Asset deleted successfully", "success");
-      void fetchAssets();
+      publishLocalUpdate({ mediaId: id, deleted: true });
+      await Promise.all([fetchAssets(), fetchGroups()]);
     } catch {
       showToast("Failed to delete asset", "error");
     }
@@ -278,14 +371,15 @@ export default function AdminPage() {
     uploadFiles.forEach((uf) => formData.append("files", uf.file));
     setUploadFiles((prev) => prev.map((uf) => ({ ...uf, status: "uploading" })));
     try {
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const res = await fetch("/api/media", { method: "POST", body: formData });
       if (!res.ok) throw new Error("Upload failed");
       setUploadFiles((prev) => prev.map((uf) => ({ ...uf, status: "success" })));
       showToast(`Successfully uploaded ${uploadFiles.length} file(s)`, "success");
       setTimeout(() => {
         setIsModalOpen(false);
         setUploadFiles([]);
-        void fetchAssets();
+        publishLocalUpdate({ uploaded: true });
+        void Promise.all([fetchAssets(), fetchGroups()]);
       }, 800);
     } catch {
       setUploadFiles((prev) => prev.map((uf) => ({ ...uf, status: "error" })));
@@ -298,6 +392,29 @@ export default function AdminPage() {
   const totalSize = assets.reduce((acc, curr) => acc + curr.size, 0);
   const imagesCount = assets.filter((a) => a.type.startsWith("image/")).length;
   const pdfsCount = assets.filter((a) => a.type === "application/pdf").length;
+  const activeBhrtAssetId =
+    bhrtActiveIdx !== -1 ? assets.find((a) => a.url === bhrtSlides[bhrtActiveIdx])?.id ?? null : null;
+  const activeVideoAssetId =
+    videoActiveIdx !== -1 ? assets.find((a) => a.url === videoSlides[videoActiveIdx])?.id ?? null : null;
+  const activeWliAssetId =
+    wliActiveIdx !== -1 ? assets.find((a) => a.url === wliSlides[wliActiveIdx])?.id ?? null : null;
+  const activeUsecaseAssetId =
+    usecaseActiveIdx !== -1
+      ? assets.find((a) => a.url === usecaseSlides[usecaseActiveIdx])?.id ?? null
+      : null;
+  const isAssetInPipeline = (pipeline: PipelineKey, assetId: string) =>
+    groupItems[pipeline].some((item) => item.asset.id === assetId);
+  const assetPipelineLabels = (asset: Asset) =>
+    asset.pipelines?.length
+      ? asset.pipelines.map((pipeline) =>
+          pipeline.active ? `${pipeline.displayName}*` : pipeline.displayName,
+        )
+      : [
+          isAssetInPipeline("bhrt", asset.id) ? "BHRT" : null,
+          isAssetInPipeline("video", asset.id) ? "Video" : null,
+          isAssetInPipeline("wli", asset.id) ? "What lies inside?" : null,
+          isAssetInPipeline("usecase", asset.id) ? "USE CASE" : null,
+        ].filter(Boolean);
 
   // Pipeline config for rendering
   const pipelines: {
@@ -539,7 +656,14 @@ export default function AdminPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5 text-sm">
-                  {assets.map((asset) => (
+                  {assets.map((asset) => {
+                    const isInBhrt = isAssetInPipeline("bhrt", asset.id);
+                    const isInVideo = isAssetInPipeline("video", asset.id);
+                    const isInWli = isAssetInPipeline("wli", asset.id);
+                    const isInUsecase = isAssetInPipeline("usecase", asset.id);
+                    const assignedPipelines = assetPipelineLabels(asset);
+
+                    return (
                     <tr key={asset.id} className="group hover:bg-white/[0.01] transition-colors">
                       <td className="py-4 pr-4">
                         {asset.type.startsWith("image/") ? (
@@ -581,53 +705,70 @@ export default function AdminPage() {
                           {/* BHRT Button */}
                           <button
                             onClick={() => handleTogglePipelineAsset("bhrt", asset)}
+                            title={isInBhrt ? "Assigned to BHRT. Click to make active." : "Add to BHRT pipeline"}
                             className={`px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-bold tracking-wider transition-all duration-200 border cursor-pointer ${
                               activeBhrtAssetId === asset.id
                                 ? "bg-amber-400 border-amber-400 text-slate-950 shadow-[0_0_10px_rgba(245,158,11,0.25)]"
+                                : isInBhrt
+                                ? "bg-amber-400/10 border-amber-400/60 text-amber-300 hover:bg-amber-400/15"
                                 : "bg-transparent border-amber-500/20 text-amber-400/60 hover:text-amber-400 hover:border-amber-500/40 hover:bg-amber-500/5"
                             }`}
                           >
-                            BHRT
+                            {activeBhrtAssetId === asset.id ? "BHRT*" : "BHRT"}
                           </button>
                           {/* Video Button */}
                           <button
                             onClick={() => handleTogglePipelineAsset("video", asset)}
+                            title={isInVideo ? "Assigned to Video. Click to make active." : "Add to Video pipeline"}
                             className={`px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-bold tracking-wider transition-all duration-200 border cursor-pointer ${
                               activeVideoAssetId === asset.id
                                 ? "bg-cyan-400 border-cyan-400 text-slate-950 shadow-[0_0_10px_rgba(34,211,238,0.25)]"
+                                : isInVideo
+                                ? "bg-cyan-400/10 border-cyan-400/60 text-cyan-300 hover:bg-cyan-400/15"
                                 : "bg-transparent border-cyan-500/20 text-cyan-400/60 hover:text-cyan-400 hover:border-cyan-500/40 hover:bg-cyan-500/5"
                             }`}
                           >
-                            VID
+                            {activeVideoAssetId === asset.id ? "VID*" : "VID"}
                           </button>
                           {/* WLI Button */}
                           <button
                             onClick={() => handleTogglePipelineAsset("wli", asset)}
+                            title={isInWli ? "Assigned to What lies inside?. Click to make active." : "Add to What lies inside? pipeline"}
                             className={`px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-bold tracking-wider transition-all duration-200 border cursor-pointer ${
                               activeWliAssetId === asset.id
                                 ? "bg-emerald-400 border-emerald-400 text-slate-950 shadow-[0_0_10px_rgba(16,185,129,0.25)]"
+                                : isInWli
+                                ? "bg-emerald-400/10 border-emerald-400/60 text-emerald-300 hover:bg-emerald-400/15"
                                 : "bg-transparent border-emerald-500/20 text-emerald-400/60 hover:text-emerald-400 hover:border-emerald-500/40 hover:bg-emerald-500/5"
                             }`}
                           >
-                            WLI
+                            {activeWliAssetId === asset.id ? "WLI*" : "WLI"}
                           </button>
                           {/* USE CASE Button */}
                           <button
                             onClick={() => handleTogglePipelineAsset("usecase", asset)}
+                            title={isInUsecase ? "Assigned to USE CASE. Click to make active." : "Add to USE CASE pipeline"}
                             className={`px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-bold tracking-wider transition-all duration-200 border cursor-pointer ${
                               activeUsecaseAssetId === asset.id
                                 ? "bg-purple-400 border-purple-400 text-slate-950 shadow-[0_0_10px_rgba(168,85,247,0.25)]"
+                                : isInUsecase
+                                ? "bg-purple-400/10 border-purple-400/60 text-purple-300 hover:bg-purple-400/15"
                                 : "bg-transparent border-purple-500/20 text-purple-400/60 hover:text-purple-400 hover:border-purple-500/40 hover:bg-purple-500/5"
                             }`}
                           >
-                            USE
+                            {activeUsecaseAssetId === asset.id ? "USE*" : "USE"}
                           </button>
+                        </div>
+                        <div className="mt-2 text-center text-[10px] font-mono text-slate-500">
+                          {assignedPipelines.length > 0
+                            ? `ASSIGNED: ${assignedPipelines.join(", ")}`
+                            : "UNASSIGNED"}
                         </div>
                       </td>
                       <td className="py-4 text-right">
                         <div className="flex items-center justify-end gap-2.5">
                           <a
-                            href={asset.url}
+                            href={asset.downloadUrl ?? asset.url}
                             target="_blank"
                             rel="noreferrer"
                             title="Open file in new tab"
@@ -649,7 +790,8 @@ export default function AdminPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
