@@ -63,6 +63,8 @@ export default function AdminPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [assetToDelete, setAssetToDelete] = useState<Asset | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   // Upload modal states
@@ -320,16 +322,26 @@ export default function AdminPage() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this asset?")) return;
+  const closeDeleteModal = () => {
+    if (isDeleting) return;
+    setAssetToDelete(null);
+  };
+
+  const handleDelete = async () => {
+    if (!assetToDelete) return;
+
+    setIsDeleting(true);
     try {
-      const res = await fetch(`/api/media/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/media/${assetToDelete.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete asset");
       showToast("Asset deleted successfully", "success");
-      publishLocalUpdate({ mediaId: id, deleted: true });
+      publishLocalUpdate({ mediaId: assetToDelete.id, deleted: true });
+      setAssetToDelete(null);
       await Promise.all([fetchAssets(), fetchGroups()]);
     } catch {
       showToast("Failed to delete asset", "error");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -779,7 +791,7 @@ export default function AdminPage() {
                             </svg>
                           </a>
                           <button
-                            onClick={() => void handleDelete(asset.id)}
+                            onClick={() => setAssetToDelete(asset)}
                             title="Delete file"
                             className="p-2 rounded-lg border border-white/5 bg-slate-900/40 text-rose-500 hover:text-rose-400 hover:border-rose-500/25 transition-all cursor-pointer"
                           >
@@ -1036,6 +1048,74 @@ export default function AdminPage() {
                 className="py-3 px-5 text-xs font-mono font-bold tracking-wider rounded-xl bg-cyan-400 hover:bg-cyan-300 text-[#070b14] transition-all shadow-[0_0_20px_rgba(34,211,238,0.15)] disabled:opacity-30 disabled:shadow-none cursor-pointer"
               >
                 {isUploading ? "UPLOADING..." : "UPLOAD FILES"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Modal */}
+      {assetToDelete && (
+        <div
+          className="fixed inset-0 bg-[#040710]/85 backdrop-blur-md flex items-center justify-center z-50 p-4"
+          onClick={closeDeleteModal}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-asset-title"
+            className="w-full max-w-md bg-slate-950 border border-rose-500/20 rounded-3xl p-6 md:p-7 shadow-2xl flex flex-col gap-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 pb-4 border-b border-white/5">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/25 flex items-center justify-center text-rose-400 shrink-0">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12V16.5zm-7.794 1.52h15.588c1.54 0 2.502-1.667 1.732-3L13.732 4.5c-.77-1.333-2.694-1.333-3.464 0L2.474 15.02c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div className="min-w-0">
+                  <h3 id="delete-asset-title" className="text-lg font-bold text-white">Delete Asset</h3>
+                  <p className="text-xs text-slate-400 font-light mt-0.5">This removes the file from the repository and active pipelines.</p>
+                </div>
+              </div>
+              <button
+                onClick={closeDeleteModal}
+                disabled={isDeleting}
+                className="p-2 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-white transition-colors cursor-pointer disabled:opacity-30"
+                aria-label="Close delete confirmation"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="rounded-2xl bg-slate-900/40 border border-white/5 p-4">
+              <p className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">Selected Asset</p>
+              <p className="mt-2 text-sm font-semibold text-white break-words">{assetToDelete.name}</p>
+              <div className="mt-2 flex items-center gap-2 text-[10px] font-mono text-slate-400">
+                <span className="px-2 py-0.5 rounded border border-white/5 bg-slate-800/40">{assetToDelete.type}</span>
+                <span>{formatBytes(assetToDelete.size)}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3 justify-end pt-1">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={closeDeleteModal}
+                className="py-3 px-5 text-xs font-mono font-bold tracking-wider rounded-xl border border-white/5 hover:border-white/10 text-slate-400 hover:text-white transition-all cursor-pointer disabled:opacity-40"
+              >
+                CANCEL
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => void handleDelete()}
+                className="py-3 px-5 text-xs font-mono font-bold tracking-wider rounded-xl bg-rose-500 hover:bg-rose-400 text-white transition-all shadow-[0_0_20px_rgba(244,63,94,0.15)] disabled:opacity-40 disabled:shadow-none cursor-pointer"
+              >
+                {isDeleting ? "DELETING..." : "DELETE ASSET"}
               </button>
             </div>
           </div>
