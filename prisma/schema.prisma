@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  PDF
+  OTHER
+}
+
+enum ControlKind {
+  PAGE_SEQUENCE
+  VIDEO
+}
+
+model MediaAsset {
+  id           String           @id @default(cuid())
+  originalName String
+  objectName   String           @unique
+  contentType  String
+  size         Int
+  mediaType    MediaType
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  groupItems   MediaGroupItem[]
+
+  @@index([mediaType])
+  @@index([createdAt])
+}
+
+model MediaGroup {
+  id             String                @id @default(cuid())
+  slug           String                @unique
+  displayName    String
+  controlKind    ControlKind
+  sortOrder      Int                   @default(0)
+  activeIndex    Int                   @default(0)
+  activeItemId   String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  items          MediaGroupItem[]       @relation("MediaGroupItems")
+  activeItem     MediaGroupItem?        @relation("ActiveGroupItem", fields: [activeItemId], references: [id], onDelete: SetNull)
+  activeStates   DisplayControlState[]
+
+  @@index([sortOrder])
+  @@index([activeItemId])
+}
+
+model MediaGroupItem {
+  id        String     @id @default(cuid())
+  groupId   String
+  assetId   String
+  position  Int
+  enabled   Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  group     MediaGroup @relation("MediaGroupItems", fields: [groupId], references: [id], onDelete: Cascade)
+  asset     MediaAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  activeForGroups MediaGroup[] @relation("ActiveGroupItem")
+
+  @@unique([groupId, assetId])
+  @@index([groupId, position])
+  @@index([assetId])
+}
+
+model DisplayControlState {
+  id              String      @id @default("default")
+  activeGroupId   String?
+  currentPosition Int         @default(0)
+  videoPlaying    Boolean     @default(false)
+  updatedAt       DateTime    @updatedAt
+  activeGroup     MediaGroup? @relation(fields: [activeGroupId], references: [id], onDelete: SetNull)
+}
