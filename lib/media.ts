@@ -89,3 +89,5 @@ export function mediaGroupResponse(
       })),
   };
 }
+
+export type MediaGroupResponse = ReturnType<typeof mediaGroupResponse>;
