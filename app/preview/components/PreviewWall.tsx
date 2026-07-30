@@ -1,67 +1,57 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  mediaDocuments,
-  type PdfRemoteState,
-  type PdfId,
-} from "@/lib/pdf-control";
+import type { DisplayControlResponse } from "@/lib/display-control";
 import styles from "../preview.module.css";
 import { ImageViewer } from "./ImageViewer";
 import { VideoViewer } from "./VideoViewer";
 
-const initialPages = Object.fromEntries(
-  mediaDocuments.map((document) => [document.id, 1]),
-) as Record<PdfId, number>;
+const initialState: DisplayControlResponse = {
+  activeGroupId: null,
+  videoPlaying: false,
+  updatedAt: 0,
+  groups: [],
+};
 
 export function PreviewWall() {
-  const [pages, setPages] = useState(initialPages);
-  const [activePdfId, setActivePdfId] = useState<PdfId | null>(null);
-  const [videoPlaying, setVideoPlaying] = useState(false);
+  const [state, setState] = useState<DisplayControlResponse>(initialState);
 
-  const refreshPages = useCallback(async () => {
+  const refresh = useCallback(async () => {
     try {
-      const response = await fetch("/api/pdf-control", { cache: "no-store" });
+      const response = await fetch("/api/display-control", { cache: "no-store" });
       if (!response.ok) throw new Error("State request failed");
-
-      const data = (await response.json()) as PdfRemoteState;
-      setActivePdfId(data.activePdfId);
-      setVideoPlaying(data.videoPlaying);
-      setPages(
-        Object.fromEntries(
-          mediaDocuments.map((document) => [
-            document.id,
-            data.documents[document.id].page,
-          ]),
-        ) as Record<PdfId, number>,
-      );
+      setState((await response.json()) as DisplayControlResponse);
     } catch {
       // Ignore API offline errors silently
     }
   }, []);
 
-  const activeDocument = mediaDocuments.find(
-    (document) => document.id === activePdfId,
-  );
-
   useEffect(() => {
-    const initialTimer = window.setTimeout(() => void refreshPages(), 0);
-    const timer = window.setInterval(() => void refreshPages(), 700);
+    const initialTimer = window.setTimeout(() => void refresh(), 0);
+    const timer = window.setInterval(() => void refresh(), 700);
     return () => {
       window.clearTimeout(initialTimer);
       window.clearInterval(timer);
     };
-  }, [refreshPages]);
+  }, [refresh]);
+
+  const activeGroup = state.groups.find((group) => group.id === state.activeGroupId);
 
   return (
     <main className={styles.wall}>
-      {activeDocument?.kind === "video" ? (
-        <VideoViewer src={activeDocument.src} playing={videoPlaying} />
-      ) : activeDocument?.kind === "images" ? (
+      {activeGroup?.controlKind === "VIDEO" ? (
+        <VideoViewer
+          src={
+            (activeGroup.items.find((item) => item.id === activeGroup.activeItemId) ??
+              activeGroup.items[0])?.asset.url ?? ""
+          }
+          playing={state.videoPlaying}
+        />
+      ) : activeGroup?.controlKind === "PAGE_SEQUENCE" ? (
         <ImageViewer
-          images={activeDocument.images}
-          pageNumber={pages[activeDocument.id]}
-          label={activeDocument.id}
+          items={activeGroup.items.filter((item) => item.enabled)}
+          activeItemId={activeGroup.activeItemId}
+          label={activeGroup.slug}
         />
       ) : (
         <PreviewSplash />
