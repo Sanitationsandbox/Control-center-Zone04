@@ -1,13 +1,13 @@
-import type { PdfDirection } from "@/lib/pdf-control";
-import type { ControlOption } from "../control-options";
+import type { NavigateDirection, PlaybackCommand } from "@/lib/display-control";
+import type { ControlOption } from "./ControlCenter";
 import styles from "../control-center.module.css";
 
 type DetailScreenProps = {
   option: ControlOption;
   isSending: boolean;
   status: string;
-  onNavigate: (direction: PdfDirection) => void;
-  onPlayback: (playback: "play" | "pause") => void;
+  onNavigate: (direction: NavigateDirection) => void;
+  onPlayback: (playback: PlaybackCommand) => void;
   onBack: () => void;
 };
 
@@ -66,7 +66,7 @@ export function DetailScreen({
       <div className={styles.detailContent}>
         <h1 id="detail-title">{option.shortName}</h1>
         <p>{option.tagline}</p>
-        {option.controlKind === "video" ? (
+        {option.controlKind === "VIDEO" ? (
           <div className={styles.pdfControls} aria-label="Video playback">
             <button
               type="button"

@@ -1,113 +1,133 @@
 "use client";
 
-import { useState } from "react";
-import type { PdfDirection } from "@/lib/pdf-control";
-import type { ControlOption } from "../control-options";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { DisplayControlResponse, NavigateDirection, PlaybackCommand } from "@/lib/display-control";
+import type { MediaGroupResponse, MediaGroupSlug } from "@/lib/media";
+import { groupCopy } from "../control-options";
 import styles from "../control-center.module.css";
 import { ControlCard } from "./ControlCard";
 import { DetailScreen } from "./DetailScreen";
 
-type ControlCenterProps = {
-  options: ControlOption[];
+export type ControlOption = {
+  id: string;
+  slug: MediaGroupSlug;
+  label: string;
+  shortName: string;
+  tagline: string;
+  controlKind: MediaGroupResponse["controlKind"];
 };
 
-export function ControlCenter({ options }: ControlCenterProps) {
-  const [selectedOption, setSelectedOption] = useState<ControlOption | null>(null);
+type ControlCenterProps = {
+  initialGroups: MediaGroupResponse[];
+  initialActiveGroupId: string | null;
+  initialVideoPlaying: boolean;
+};
+
+function toOptions(groups: MediaGroupResponse[]): ControlOption[] {
+  const options: ControlOption[] = [];
+
+  for (const group of groups) {
+    const copy = groupCopy[group.slug as MediaGroupSlug];
+    if (!copy) continue;
+
+    options.push({
+      id: group.id,
+      slug: group.slug as MediaGroupSlug,
+      controlKind: group.controlKind,
+      ...copy,
+    });
+  }
+
+  return options;
+}
+
+export function ControlCenter({
+  initialGroups,
+  initialActiveGroupId,
+  initialVideoPlaying,
+}: ControlCenterProps) {
+  const [groups, setGroups] = useState(initialGroups);
+  const [activeGroupId, setActiveGroupId] = useState(initialActiveGroupId);
+  const [, setVideoPlaying] = useState(initialVideoPlaying);
   const [isSending, setIsSending] = useState(false);
   const [status, setStatus] = useState("");
+  const isSendingRef = useRef(false);
 
-  async function selectOption(option: ControlOption) {
-    if (isSending) return;
+  const applyState = useCallback((data: DisplayControlResponse) => {
+    setGroups(data.groups);
+    setActiveGroupId(data.activeGroupId);
+    setVideoPlaying(data.videoPlaying);
+  }, []);
 
-    setIsSending(true);
-    setStatus("Opening…");
+  const refresh = useCallback(async () => {
+    if (isSendingRef.current) return;
 
     try {
-      const response = await fetch("/api/pdf-control", {
+      const response = await fetch("/api/display-control", { cache: "no-store" });
+      if (!response.ok) throw new Error("State request failed");
+      applyState((await response.json()) as DisplayControlResponse);
+    } catch {
+      // Ignore API offline errors silently
+    }
+  }, [applyState]);
+
+  useEffect(() => {
+    const initialTimer = window.setTimeout(() => void refresh(), 0);
+    const timer = window.setInterval(() => void refresh(), 700);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(timer);
+    };
+  }, [refresh]);
+
+  const options = toOptions(groups);
+  const selectedOption = options.find((option) => option.id === activeGroupId) ?? null;
+
+  async function send(body: unknown, pendingStatus: string, errorStatus: string) {
+    isSendingRef.current = true;
+    setIsSending(true);
+    setStatus(pendingStatus);
+
+    try {
+      const response = await fetch("/api/display-control", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "activate", pdfId: option.pdfId }),
+        body: JSON.stringify(body),
       });
 
-      if (!response.ok) throw new Error("Activation failed");
-      setSelectedOption(option);
+      if (!response.ok) throw new Error("Command failed");
+      applyState((await response.json()) as DisplayControlResponse);
       setStatus("");
     } catch {
-      setStatus("Unable to open preview");
+      setStatus(errorStatus);
     } finally {
+      isSendingRef.current = false;
       setIsSending(false);
     }
   }
 
-  async function sendCommand(direction: PdfDirection) {
+  async function selectOption(option: ControlOption) {
+    if (isSending) return;
+    await send({ action: "activate", groupId: option.id }, "Opening…", "Unable to open preview");
+  }
+
+  async function sendCommand(direction: NavigateDirection) {
     if (!selectedOption || isSending) return;
-
-    setIsSending(true);
-    setStatus("Sending…");
-
-    try {
-      const response = await fetch("/api/pdf-control", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "navigate",
-          pdfId: selectedOption.pdfId,
-          direction,
-        }),
-      });
-
-      if (!response.ok) throw new Error("Command failed");
-      setStatus("Command sent");
-    } catch {
-      setStatus("Unable to reach preview");
-    } finally {
-      setIsSending(false);
-    }
+    await send({ action: "navigate", direction }, "Sending…", "Unable to reach preview");
   }
 
   async function closePreview() {
     if (isSending) return;
-
-    setIsSending(true);
-    setStatus("Closing…");
-
-    try {
-      const response = await fetch("/api/pdf-control", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "clear" }),
-      });
-
-      if (!response.ok) throw new Error("Clear failed");
-      setSelectedOption(null);
-      setStatus("");
-    } catch {
-      setStatus("Unable to close preview");
-    } finally {
-      setIsSending(false);
-    }
+    await send({ action: "clear" }, "Closing…", "Unable to close preview");
   }
 
-  async function sendPlayback(playback: "play" | "pause") {
+  async function sendPlayback(playback: PlaybackCommand) {
     if (!selectedOption || isSending) return;
-
-    setIsSending(true);
-    setStatus(playback === "play" ? "Playing…" : "Pausing…");
-
-    try {
-      const response = await fetch("/api/pdf-control", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "playback", playback }),
-      });
-
-      if (!response.ok) throw new Error("Playback command failed");
-      setStatus(playback === "play" ? "Video playing" : "Video paused");
-    } catch {
-      setStatus("Unable to control video");
-    } finally {
-      setIsSending(false);
-    }
+    await send(
+      { action: "playback", playback },
+      playback === "play" ? "Playing…" : "Pausing…",
+      "Unable to control video",
+    );
   }
 
   return (

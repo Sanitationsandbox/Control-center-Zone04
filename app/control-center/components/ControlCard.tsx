@@ -1,4 +1,4 @@
-import type { ControlOption } from "../control-options";
+import type { ControlOption } from "./ControlCenter";
 import styles from "../control-center.module.css";
 
 type ControlCardProps = {
