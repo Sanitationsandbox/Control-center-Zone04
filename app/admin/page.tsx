@@ -74,27 +74,10 @@ export default function AdminPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Pipeline slide states — named after the actual control-options labels
-  const [bhrtSlides, setBhrtSlides] = useState<string[]>([
-    "/button01/BHRT.jpeg",
-  ]);
-  const [videoSlides, setVideoSlides] = useState<string[]>([
-    "/video/lastVideo001.mp4",
-  ]);
-  const [wliSlides, setWliSlides] = useState<string[]>([
-    "/button03/2.jpg",
-    "/button03/3.jpg",
-    "/button03/4.jpg",
-    "/button03/5.jpg",
-    "/button03/6.jpg",
-    "/button03/7.jpg",
-    "/button03/8.jpg",
-  ]);
-  const [usecaseSlides, setUsecaseSlides] = useState<string[]>([
-    "/button04/9.jpg",
-    "/button04/10.jpg",
-    "/button04/11.jpg",
-    "/button04/12.jpg",
-  ]);
+  const [bhrtSlides, setBhrtSlides] = useState<string[]>([]);
+  const [videoSlides, setVideoSlides] = useState<string[]>([]);
+  const [wliSlides, setWliSlides] = useState<string[]>([]);
+  const [usecaseSlides, setUsecaseSlides] = useState<string[]>([]);
 
   const [bhrtActiveIdx, setBhrtActiveIdx] = useState<number>(0);
   const [videoActiveIdx, setVideoActiveIdx] = useState<number>(0);
