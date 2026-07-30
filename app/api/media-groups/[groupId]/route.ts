@@ -1,5 +1,6 @@
 import { broadcastUpdate } from "@/lib/broadcast";
 import { mediaGroupResponse } from "@/lib/media";
+import { ActiveSelectionError, applyActiveSelection } from "@/lib/media-groups";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -186,37 +187,21 @@ export async function PATCH(request: Request, context: Params) {
       return json({ error: "activeItemId must be a string or null" }, 400);
     }
 
-    let nextActiveIndex = activeIndex;
-    let nextActiveItemId =
+    const nextActiveItemId =
       body.activeItemId === undefined
         ? undefined
         : body.activeItemId === null
           ? null
           : body.activeItemId;
 
-    if (typeof nextActiveItemId === "string") {
-      const activeItem = await prisma.mediaGroupItem.findFirst({
-        where: { id: nextActiveItemId, groupId: group.id },
-      });
-
-      if (!activeItem) {
-        return json({ error: "activeItemId must belong to this media group" }, 400);
+    try {
+      await applyActiveSelection(group, { activeIndex, activeItemId: nextActiveItemId });
+    } catch (error) {
+      if (error instanceof ActiveSelectionError) {
+        return json({ error: error.message }, 400);
       }
-
-      nextActiveIndex ??= activeItem.position;
+      throw error;
     }
-
-    if (nextActiveIndex === -1) {
-      nextActiveItemId = null;
-    }
-
-    await prisma.mediaGroup.update({
-      where: { id: group.id },
-      data: {
-        ...(nextActiveIndex !== undefined ? { activeIndex: nextActiveIndex } : {}),
-        ...(nextActiveItemId !== undefined ? { activeItemId: nextActiveItemId } : {}),
-      },
-    });
   }
 
   const updatedGroup = await prisma.mediaGroup.findUniqueOrThrow({
