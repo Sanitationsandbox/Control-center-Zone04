@@ -1,7 +1,7 @@
 import { mediaAssetResponse } from "@/lib/media";
 import { broadcastUpdate } from "@/lib/broadcast";
 import { prisma } from "@/lib/prisma";
-import { deleteStoredObject } from "@/lib/uploads";
+import { deleteStoredObject, resourceTypeFromContentType } from "@/lib/uploads";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -32,7 +32,7 @@ export async function DELETE(_request: Request, context: Params) {
 
   if (!asset) return json({ error: "Media asset not found" }, 404);
 
-  await deleteStoredObject(asset.objectName);
+  await deleteStoredObject(asset.objectName, resourceTypeFromContentType(asset.contentType));
   await prisma.mediaAsset.delete({ where: { id } });
   broadcastUpdate("content-updated", { mediaId: id, deleted: true });
 
