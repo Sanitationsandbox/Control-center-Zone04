@@ -191,6 +191,16 @@ export default function AdminPage() {
     }
   };
 
+  const handleRemovePipelineAsset = async (pipeline: PipelineKey, assetId: string) => {
+    try {
+      await patchPipeline(pipeline, { removeAssetId: assetId });
+      publishLocalUpdate({ groupId: pipelineSlug[pipeline] });
+      await fetchGroups();
+    } catch {
+      showToast("Unable to remove card from pipeline", "error");
+    }
+  };
+
   const handleSlideDragStart = (pipeline: PipelineKey, index: number) => {
     setDraggedSlide({ pipeline, index });
   };
@@ -922,6 +932,21 @@ export default function AdminPage() {
 
                           <div className="flex justify-between items-center px-1">
                             <span className="text-[10px] font-mono font-bold text-slate-500">INDEX {idx + 1}</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const assetId = groupItems[pl.key]?.[idx]?.asset.id;
+                                if (assetId) {
+                                  void handleRemovePipelineAsset(pl.key, assetId);
+                                }
+                              }}
+                              className="text-slate-500 hover:text-rose-500 transition-colors p-1 rounded hover:bg-white/5 cursor-pointer"
+                              title="Remove from pipeline"
+                            >
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
                           </div>
 
                           <div
