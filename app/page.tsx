@@ -12,7 +12,8 @@ export default function Home() {
         justifyContent: "space-between", 
         minHeight: "100vh", 
         alignItems: "center", 
-        padding: "4rem 2rem" 
+        padding: "4rem 2rem",
+        textAlign: "center"
       }}
     >
       <div className={backgroundStyles.glow} aria-hidden="true" />
@@ -20,9 +21,9 @@ export default function Home() {
       {/* Top spacer to balance vertical layout */}
       <div style={{ height: "40px" }} />
 
-      <h1 className={styles.title}>
-        Welcome to Rubenius
-        <span>Screen Control Center</span>
+      <h1 className={styles.title} style={{ textAlign: "center" }}>
+        Zone 01
+        <span style={{ display: "block", textAlign: "center" }}>Screen Control Center</span>
       </h1>
 
       {/* Footer Navigation */}
