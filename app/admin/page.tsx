@@ -742,10 +742,8 @@ export default function AdminPage() {
                             </svg>
                           </div>
                         ) : asset.type.startsWith("video/") ? (
-                          <div className="w-12 h-12 rounded-lg border border-white/10 bg-cyan-500/10 flex items-center justify-center text-cyan-400">
-                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
+                          <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-white/10 bg-slate-950 flex items-center justify-center">
+                            <video src={asset.url} className="w-full h-full object-cover" preload="metadata" muted playsInline />
                           </div>
                         ) : (
                           <div className="w-12 h-12 rounded-lg border border-white/10 bg-slate-800/40 flex items-center justify-center text-slate-400">
@@ -964,12 +962,7 @@ export default function AdminPage() {
                             <div className="relative aspect-[16/10] w-full rounded-lg overflow-hidden border border-white/5 bg-slate-900 flex items-center justify-center">
                               <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,0.15)_50%,rgba(0,0,0,0)_50%)] bg-[size:100%_4px] pointer-events-none z-10" />
                               {isVideoSlide ? (
-                                <div className="flex flex-col items-center justify-center gap-1 text-slate-500 w-full h-full bg-slate-900">
-                                  <svg className="w-8 h-8 text-cyan-400/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                  </svg>
-                                  <span className="text-[9px] font-mono text-slate-500">VIDEO</span>
-                                </div>
+                                <video src={slide} className="w-full h-full object-cover pointer-events-none" preload="metadata" muted playsInline />
                               ) : (
                                 /* eslint-disable-next-line @next/next/no-img-element */
                                 <img
