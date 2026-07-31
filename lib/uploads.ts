@@ -1,5 +1,8 @@
 import type { UploadApiResponse } from "cloudinary";
 import { cloudinary, getPublicIdFromUrl } from "./cloudinary";
+import { promises as fs } from "fs";
+import path from "path";
+
 
 type UploadFolder = "media" | string;
 export type CloudinaryResourceType = "image" | "video" | "raw";
@@ -58,8 +61,25 @@ export async function uploadStoredObject(
 }
 
 export async function fetchStoredObject(objectName: string) {
-  return fetch(objectName);
+  if (objectName.startsWith("http://") || objectName.startsWith("https://")) {
+    return fetch(objectName);
+  }
+
+  try {
+    const absolutePath = path.join(process.cwd(), "public", objectName);
+    const data = await fs.readFile(absolutePath);
+    return new Response(data, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/octet-stream"
+      }
+    });
+  } catch (err) {
+    console.error("Local file fetch error:", err);
+    return new Response(null, { status: 404 });
+  }
 }
+
 
 export async function deleteStoredObject(
   objectName: string,
