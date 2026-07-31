@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { createMediaFromFormData, jsonNoStore } from "@/lib/media-api";
+import { createMediaFromFormData, createMediaFromMetadata, jsonNoStore } from "@/lib/media-api";
 import { mediaAssetWithPipelinesResponse } from "@/lib/media";
 import { prisma } from "@/lib/prisma";
 
@@ -28,6 +28,13 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const contentType = request.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    const body = await request.json().catch(() => ({}));
+    return createMediaFromMetadata(body);
+  }
+
   const formData = await request.formData();
   const groupSlug = formData.get("groupSlug");
   return createMediaFromFormData(formData, {
@@ -35,3 +42,4 @@ export async function POST(request: NextRequest) {
     groupSlug: typeof groupSlug === "string" ? groupSlug : null,
   });
 }
+

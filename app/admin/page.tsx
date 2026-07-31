@@ -362,13 +362,76 @@ export default function AdminPage() {
   const handleUploadSubmit = async () => {
     if (uploadFiles.length === 0) return;
     setIsUploading(true);
-    const formData = new FormData();
-    uploadFiles.forEach((uf) => formData.append("files", uf.file));
-    setUploadFiles((prev) => prev.map((uf) => ({ ...uf, status: "uploading" })));
-    try {
-      const res = await fetch("/api/media", { method: "POST", body: formData });
-      if (!res.ok) throw new Error("Upload failed");
-      setUploadFiles((prev) => prev.map((uf) => ({ ...uf, status: "success" })));
+
+    let hasError = false;
+
+    const getResourceType = (type: string) => {
+      if (type.startsWith("image/")) return "image";
+      if (type.startsWith("video/")) return "video";
+      return "raw";
+    };
+
+    for (let i = 0; i < uploadFiles.length; i++) {
+      const uf = uploadFiles[i];
+
+      setUploadFiles((prev) =>
+        prev.map((item, idx) => (idx === i ? { ...item, status: "uploading" } : item))
+      );
+
+      try {
+        const signRes = await fetch("/api/upload/sign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ folder: "media" }),
+        });
+        if (!signRes.ok) throw new Error("Failed to get signature");
+        const signData = await signRes.json();
+
+        const resourceType = getResourceType(uf.file.type || "application/octet-stream");
+        const cldFormData = new FormData();
+        cldFormData.append("file", uf.file);
+        cldFormData.append("api_key", signData.apiKey);
+        cldFormData.append("timestamp", signData.timestamp.toString());
+        cldFormData.append("signature", signData.signature);
+        cldFormData.append("folder", signData.folder);
+
+        const uploadRes = await fetch(
+          `https://api.cloudinary.com/v1_1/${signData.cloudName}/${resourceType}/upload`,
+          {
+            method: "POST",
+            body: cldFormData,
+          }
+        );
+        if (!uploadRes.ok) throw new Error("Cloudinary upload failed");
+        const uploadData = await uploadRes.json();
+
+        const mediaRes = await fetch("/api/media", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            originalName: uf.file.name,
+            objectName: uploadData.secure_url,
+            contentType: uf.file.type || "application/octet-stream",
+            size: uf.file.size,
+          }),
+        });
+        if (!mediaRes.ok) throw new Error("Database registration failed");
+
+        setUploadFiles((prev) =>
+          prev.map((item, idx) => (idx === i ? { ...item, status: "success" } : item))
+        );
+      } catch (err) {
+        console.error("Upload error for file:", uf.file.name, err);
+        hasError = true;
+        setUploadFiles((prev) =>
+          prev.map((item, idx) => (idx === i ? { ...item, status: "error" } : item))
+        );
+      }
+    }
+
+    if (hasError) {
+      showToast("Some uploads failed. Please try again.", "error");
+    } else {
       showToast(`Successfully uploaded ${uploadFiles.length} file(s)`, "success");
       setTimeout(() => {
         setIsModalOpen(false);
@@ -376,12 +439,8 @@ export default function AdminPage() {
         publishLocalUpdate({ uploaded: true });
         void Promise.all([fetchAssets(), fetchGroups()]);
       }, 800);
-    } catch {
-      setUploadFiles((prev) => prev.map((uf) => ({ ...uf, status: "error" })));
-      showToast("Upload failed. Please try again.", "error");
-    } finally {
-      setIsUploading(false);
     }
+    setIsUploading(false);
   };
 
   const totalSize = assets.reduce((acc, curr) => acc + curr.size, 0);

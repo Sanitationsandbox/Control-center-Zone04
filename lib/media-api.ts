@@ -108,3 +108,77 @@ export async function createMediaFromFormData(
     201,
   );
 }
+
+export async function createMediaFromMetadata(body: {
+  originalName: string;
+  objectName: string;
+  contentType: string;
+  size: number;
+  groupSlug?: string | null;
+}) {
+  const { originalName, objectName, contentType, size, groupSlug } = body;
+
+  if (!originalName || !objectName || !contentType || typeof size !== "number") {
+    return jsonNoStore({ error: "Missing required metadata fields" }, 400);
+  }
+
+  if (groupSlug) {
+    const group = await prisma.mediaGroup.findUnique({ where: { slug: groupSlug } });
+    if (!group) return jsonNoStore({ error: "Media group not found" }, 404);
+  }
+
+  const mediaType = getMediaType(contentType);
+
+  const asset = await prisma.mediaAsset.create({
+    data: {
+      originalName,
+      objectName,
+      contentType,
+      size,
+      mediaType,
+    },
+  });
+
+  if (groupSlug) {
+    const lastItem = await prisma.mediaGroupItem.findFirst({
+      where: { group: { slug: groupSlug } },
+      orderBy: { position: "desc" },
+    });
+
+    const item = await prisma.mediaGroupItem.create({
+      data: {
+        group: { connect: { slug: groupSlug } },
+        asset: { connect: { id: asset.id } },
+        position: (lastItem?.position ?? -1) + 1,
+      },
+    });
+
+    await prisma.mediaGroup.update({
+      where: { slug: groupSlug },
+      data: {
+        activeIndex: item.position,
+        activeItemId: item.id,
+      },
+    });
+
+    broadcastUpdate("content-updated", {
+      groupId: groupSlug,
+      mediaId: asset.id,
+      itemId: item.id,
+    });
+  } else {
+    broadcastUpdate("content-updated", {
+      mediaIds: [asset.id],
+      uploaded: true,
+    });
+  }
+
+  return jsonNoStore(
+    {
+      success: true,
+      asset: mediaAssetResponse(asset),
+    },
+    201,
+  );
+}
+
