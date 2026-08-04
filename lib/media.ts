@@ -13,7 +13,10 @@ export const MEDIA_GROUP_SLUGS = [
   "use-case",
 ] as const;
 
-export type MediaGroupSlug = (typeof MEDIA_GROUP_SLUGS)[number];
+// Media groups ("fields") can now be created dynamically at runtime, so the
+// slug is any string persisted in the database — MEDIA_GROUP_SLUGS above is
+// only the set of built-in fields with custom copy in control-options.ts.
+export type MediaGroupSlug = string;
 
 export function getMediaType(contentType: string): MediaType {
   if (contentType.startsWith("image/")) return "IMAGE";

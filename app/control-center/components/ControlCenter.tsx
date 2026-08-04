@@ -24,21 +24,18 @@ type ControlCenterProps = {
 };
 
 function toOptions(groups: MediaGroupResponse[]): ControlOption[] {
-  const options: ControlOption[] = [];
-
-  for (const group of groups) {
+  return groups.map((group) => {
     const copy = groupCopy[group.slug as MediaGroupSlug];
-    if (!copy) continue;
 
-    options.push({
+    return {
       id: group.id,
       slug: group.slug as MediaGroupSlug,
       controlKind: group.controlKind,
-      ...copy,
-    });
-  }
-
-  return options;
+      label: copy?.label ?? group.displayName,
+      shortName: copy?.shortName ?? group.displayName,
+      tagline: copy?.tagline ?? "Dedicated content pipeline.",
+    };
+  });
 }
 
 export function ControlCenter({
@@ -143,7 +140,10 @@ export function ControlCenter({
           onBack={closePreview}
         />
       ) : (
-        <section className={styles.controls} aria-label="Treatment options">
+        <section
+          className={`${styles.controls} ${options.length > 4 ? styles.controlsMultiRow : ""}`}
+          aria-label="Treatment options"
+        >
           {options.map((option) => (
             <ControlCard
               key={option.id}

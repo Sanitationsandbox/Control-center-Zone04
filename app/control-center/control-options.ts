@@ -6,7 +6,9 @@ export type GroupCopy = {
   tagline: string;
 };
 
-export const groupCopy: Record<MediaGroupSlug, GroupCopy> = {
+// Only the built-in fields need custom copy; dynamically added fields fall
+// back to their own displayName (see ControlCenter.tsx's toOptions).
+export const groupCopy: Partial<Record<MediaGroupSlug, GroupCopy>> = {
   bhrt: {
     label: "BHRT",
     shortName: "BHRT",

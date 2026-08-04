@@ -14,14 +14,6 @@ interface Asset {
   downloadUrl?: string;
   inlineUrl?: string;
   mediaType?: "IMAGE" | "VIDEO" | "PDF" | "OTHER";
-  pipelines?: {
-    itemId: string;
-    groupId: string;
-    slug: string;
-    displayName: string;
-    position: number;
-    active: boolean;
-  }[];
 }
 
 interface MediaGroupItem {
@@ -48,19 +40,37 @@ interface UploadingFile {
   progress: number;
 }
 
-type PipelineKey = "bhrt" | "video" | "wli" | "usecase";
-
-const pipelineSlug: Record<PipelineKey, string> = {
-  bhrt: "bhrt",
-  video: "video",
-  wli: "what-lies-inside",
-  usecase: "use-case",
-};
-
 const broadcastChannelName = "rubenius-content";
+
+// Static Tailwind class names (kept literal so the JIT compiler picks them up)
+// cycled through for however many fields exist — this is what lets pipelines
+// be created dynamically without touching this file again.
+const PIPELINE_PALETTE = [
+  { color: "text-amber-400", activeColor: "group-hover/hdr:text-amber-400", borderActive: "border-amber-500", bgActive: "bg-amber-500/5", shadowActive: "shadow-[0_0_15px_rgba(245,158,11,0.2)]", badgeBg: "bg-amber-500/10", badgeBorder: "border-amber-500/20", badgeText: "text-amber-400", glowColor: "bg-amber-400", indicatorColor: "#f59e0b" },
+  { color: "text-cyan-400", activeColor: "group-hover/hdr:text-cyan-400", borderActive: "border-cyan-400", bgActive: "bg-cyan-400/5", shadowActive: "shadow-[0_0_15px_rgba(6,182,212,0.2)]", badgeBg: "bg-cyan-500/10", badgeBorder: "border-cyan-400/20", badgeText: "text-cyan-400", glowColor: "bg-cyan-400", indicatorColor: "#22d3ee" },
+  { color: "text-emerald-400", activeColor: "group-hover/hdr:text-emerald-400", borderActive: "border-emerald-500", bgActive: "bg-emerald-500/5", shadowActive: "shadow-[0_0_15px_rgba(16,185,129,0.2)]", badgeBg: "bg-emerald-500/10", badgeBorder: "border-emerald-500/20", badgeText: "text-emerald-400", glowColor: "bg-emerald-400", indicatorColor: "#10b981" },
+  { color: "text-purple-400", activeColor: "group-hover/hdr:text-purple-400", borderActive: "border-purple-500", bgActive: "bg-purple-500/5", shadowActive: "shadow-[0_0_15px_rgba(168,85,247,0.2)]", badgeBg: "bg-purple-500/10", badgeBorder: "border-purple-500/20", badgeText: "text-purple-400", glowColor: "bg-purple-400", indicatorColor: "#a855f7" },
+  { color: "text-rose-400", activeColor: "group-hover/hdr:text-rose-400", borderActive: "border-rose-500", bgActive: "bg-rose-500/5", shadowActive: "shadow-[0_0_15px_rgba(244,63,94,0.2)]", badgeBg: "bg-rose-500/10", badgeBorder: "border-rose-500/20", badgeText: "text-rose-400", glowColor: "bg-rose-400", indicatorColor: "#f43f5e" },
+  { color: "text-blue-400", activeColor: "group-hover/hdr:text-blue-400", borderActive: "border-blue-500", bgActive: "bg-blue-500/5", shadowActive: "shadow-[0_0_15px_rgba(59,130,246,0.2)]", badgeBg: "bg-blue-500/10", badgeBorder: "border-blue-500/20", badgeText: "text-blue-400", glowColor: "bg-blue-400", indicatorColor: "#3b82f6" },
+  { color: "text-lime-400", activeColor: "group-hover/hdr:text-lime-400", borderActive: "border-lime-500", bgActive: "bg-lime-500/5", shadowActive: "shadow-[0_0_15px_rgba(132,204,22,0.2)]", badgeBg: "bg-lime-500/10", badgeBorder: "border-lime-500/20", badgeText: "text-lime-400", glowColor: "bg-lime-400", indicatorColor: "#84cc16" },
+  { color: "text-orange-400", activeColor: "group-hover/hdr:text-orange-400", borderActive: "border-orange-500", bgActive: "bg-orange-500/5", shadowActive: "shadow-[0_0_15px_rgba(249,115,22,0.2)]", badgeBg: "bg-orange-500/10", badgeBorder: "border-orange-500/20", badgeText: "text-orange-400", glowColor: "bg-orange-400", indicatorColor: "#fb923c" },
+];
+
+function paletteFor(index: number) {
+  return PIPELINE_PALETTE[index % PIPELINE_PALETTE.length];
+}
+
+function abbreviate(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return "??";
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length === 1) return trimmed.slice(0, 4).toUpperCase();
+  return words.map((word) => word[0]).join("").slice(0, 4).toUpperCase();
+}
 
 export default function AdminPage() {
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [groups, setGroups] = useState<MediaGroup[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [assetToDelete, setAssetToDelete] = useState<Asset | null>(null);
@@ -73,32 +83,19 @@ export default function AdminPage() {
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Pipeline slide states — named after the actual control-options labels
-  const [bhrtSlides, setBhrtSlides] = useState<string[]>([]);
-  const [videoSlides, setVideoSlides] = useState<string[]>([]);
-  const [wliSlides, setWliSlides] = useState<string[]>([]);
-  const [usecaseSlides, setUsecaseSlides] = useState<string[]>([]);
-
-  const [bhrtActiveIdx, setBhrtActiveIdx] = useState<number>(0);
-  const [videoActiveIdx, setVideoActiveIdx] = useState<number>(0);
-  const [wliActiveIdx, setWliActiveIdx] = useState<number>(0);
-  const [usecaseActiveIdx, setUsecaseActiveIdx] = useState<number>(0);
-
-  const [bhrtOpen, setBhrtOpen] = useState<boolean>(true);
-  const [videoOpen, setVideoOpen] = useState<boolean>(true);
-  const [wliOpen, setWliOpen] = useState<boolean>(true);
-  const [usecaseOpen, setUsecaseOpen] = useState<boolean>(true);
+  // Pipeline (media group) UI state, keyed by group id so any number of
+  // dynamically-created fields works without additional state variables.
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   // Drag and drop states for slide reordering
-  const [draggedSlide, setDraggedSlide] = useState<{ pipeline: PipelineKey; index: number } | null>(null);
+  const [draggedSlide, setDraggedSlide] = useState<{ groupId: string; index: number } | null>(null);
   const [dragOverSlideIndex, setDragOverSlideIndex] = useState<number | null>(null);
 
-  const [groupItems, setGroupItems] = useState<Record<PipelineKey, MediaGroupItem[]>>({
-    bhrt: [],
-    video: [],
-    wli: [],
-    usecase: [],
-  });
+  // Add More Field modal state
+  const [isAddFieldModalOpen, setIsAddFieldModalOpen] = useState<boolean>(false);
+  const [newFieldName, setNewFieldName] = useState<string>("");
+  const [newFieldKind, setNewFieldKind] = useState<"PAGE_SEQUENCE" | "VIDEO">("PAGE_SEQUENCE");
+  const [isAddingField, setIsAddingField] = useState<boolean>(false);
 
   function showToast(message: string, type: "success" | "error") {
     setToast({ message, type });
@@ -111,8 +108,8 @@ export default function AdminPage() {
     channel.close();
   };
 
-  const patchPipeline = async (pipeline: PipelineKey, body: unknown) => {
-    const response = await fetch(`/api/media-groups/${pipelineSlug[pipeline]}`, {
+  const patchPipeline = async (groupSlug: string, body: unknown) => {
+    const response = await fetch(`/api/media-groups/${groupSlug}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -123,131 +120,6 @@ export default function AdminPage() {
     }
 
     return response;
-  };
-
-  const applyGroups = (groups: MediaGroup[]) => {
-    const nextItems = { bhrt: [], video: [], wli: [], usecase: [] } as Record<PipelineKey, MediaGroupItem[]>;
-
-    for (const pipeline of Object.keys(pipelineSlug) as PipelineKey[]) {
-      const group = groups.find((item) => item.slug === pipelineSlug[pipeline]);
-      const items = group?.items.filter((item) => item.enabled) ?? [];
-      nextItems[pipeline] = items;
-      setSlides(pipeline, () => items.map((item) => item.asset.inlineUrl ?? item.asset.url));
-      setActiveIdx(pipeline, items.length > 0 ? group?.activeIndex ?? 0 : -1);
-    }
-
-    setGroupItems(nextItems);
-  };
-
-  const getSlides = (pipeline: PipelineKey) => {
-    if (pipeline === "bhrt") return bhrtSlides;
-    if (pipeline === "video") return videoSlides;
-    if (pipeline === "wli") return wliSlides;
-    return usecaseSlides;
-  };
-
-  const getActiveIdx = (pipeline: PipelineKey) => {
-    if (pipeline === "bhrt") return bhrtActiveIdx;
-    if (pipeline === "video") return videoActiveIdx;
-    if (pipeline === "wli") return wliActiveIdx;
-    return usecaseActiveIdx;
-  };
-
-  const setSlides = (pipeline: PipelineKey, updater: (prev: string[]) => string[]) => {
-    if (pipeline === "bhrt") setBhrtSlides(updater);
-    else if (pipeline === "video") setVideoSlides(updater);
-    else if (pipeline === "wli") setWliSlides(updater);
-    else setUsecaseSlides(updater);
-  };
-
-  const setActiveIdx = (pipeline: PipelineKey, idx: number | ((prev: number) => number)) => {
-    if (pipeline === "bhrt") setBhrtActiveIdx(idx as number);
-    else if (pipeline === "video") setVideoActiveIdx(idx as number);
-    else if (pipeline === "wli") setWliActiveIdx(idx as number);
-    else setUsecaseActiveIdx(idx as number);
-  };
-
-  const handleTogglePipelineAsset = async (pipeline: PipelineKey, asset: Asset) => {
-    const slides = getSlides(pipeline);
-    const existingItemIndex = groupItems[pipeline].findIndex((item) => item.asset.id === asset.id);
-
-    try {
-      if (existingItemIndex !== -1) {
-        setActiveIdx(pipeline, existingItemIndex);
-        await patchPipeline(pipeline, {
-          activeIndex: existingItemIndex,
-          activeItemId: groupItems[pipeline][existingItemIndex]?.id ?? null,
-        });
-      } else {
-        setSlides(pipeline, (prev) => [...prev, asset.url]);
-        setActiveIdx(pipeline, slides.length);
-        await patchPipeline(pipeline, { addAssetId: asset.id });
-      }
-
-      publishLocalUpdate({ groupId: pipelineSlug[pipeline], mediaId: asset.id });
-      await fetchGroups();
-    } catch {
-      showToast("Unable to update pipeline", "error");
-    }
-  };
-
-  const handleSlideDragStart = (pipeline: PipelineKey, index: number) => {
-    setDraggedSlide({ pipeline, index });
-  };
-
-  const handleSlideDragOver = (e: DragEvent<HTMLDivElement>, index: number) => {
-    e.preventDefault();
-    setDragOverSlideIndex(index);
-  };
-
-  const handleSlideDragEnd = () => {
-    setDraggedSlide(null);
-    setDragOverSlideIndex(null);
-  };
-
-  const handleSlideDrop = async (pipeline: PipelineKey, targetIndex: number) => {
-    if (!draggedSlide || draggedSlide.pipeline !== pipeline) return;
-    const sourceIndex = draggedSlide.index;
-    if (sourceIndex === targetIndex) return;
-
-    setSlides(pipeline, (prev) => {
-      const list = [...prev];
-      const [movedItem] = list.splice(sourceIndex, 1);
-      list.splice(targetIndex, 0, movedItem);
-      return list;
-    });
-
-    const activeIndex = getActiveIdx(pipeline);
-    let nextActiveIndex = activeIndex;
-
-    if (activeIndex === sourceIndex) {
-      nextActiveIndex = targetIndex;
-      setActiveIdx(pipeline, targetIndex);
-    } else if (activeIndex > sourceIndex && activeIndex <= targetIndex) {
-      nextActiveIndex = activeIndex - 1;
-      setActiveIdx(pipeline, activeIndex - 1);
-    } else if (activeIndex < sourceIndex && activeIndex >= targetIndex) {
-      nextActiveIndex = activeIndex + 1;
-      setActiveIdx(pipeline, activeIndex + 1);
-    }
-
-    handleSlideDragEnd();
-
-    const nextItems = [...groupItems[pipeline]];
-    const [movedItem] = nextItems.splice(sourceIndex, 1);
-    if (movedItem) nextItems.splice(targetIndex, 0, movedItem);
-
-    try {
-      await patchPipeline(pipeline, {
-        itemIds: nextItems.map((item) => item.id),
-        activeIndex: nextActiveIndex,
-        activeItemId: nextItems[nextActiveIndex]?.id ?? null,
-      });
-      publishLocalUpdate({ groupId: pipelineSlug[pipeline] });
-      await fetchGroups();
-    } catch {
-      showToast("Unable to save slide order", "error");
-    }
   };
 
   const fetchAssets = async () => {
@@ -267,7 +139,14 @@ export default function AdminPage() {
     const res = await fetch("/api/media-groups");
     if (!res.ok) throw new Error("Failed to load media groups");
     const data = (await res.json()) as MediaGroup[];
-    applyGroups(data);
+    setGroups(data);
+    setOpenGroups((prev) => {
+      const next = { ...prev };
+      for (const group of data) {
+        if (!(group.id in next)) next[group.id] = true;
+      }
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -384,146 +263,141 @@ export default function AdminPage() {
     }
   };
 
+  // Pipeline (media group) helpers — all derived from `groups`, nothing hardcoded.
+  const isAssetInPipeline = (group: MediaGroup, assetId: string) =>
+    group.items.some((item) => item.enabled && item.asset.id === assetId);
+
+  const activeAssetIdForGroup = (group: MediaGroup) => {
+    const activeItem = group.items.find((item) => item.enabled && item.id === group.activeItemId);
+    return activeItem?.asset.id ?? null;
+  };
+
+  const handleTogglePipelineAsset = async (group: MediaGroup, asset: Asset) => {
+    const enabledItems = group.items.filter((item) => item.enabled);
+    const existingItem = enabledItems.find((item) => item.asset.id === asset.id);
+
+    try {
+      if (existingItem) {
+        const idx = enabledItems.indexOf(existingItem);
+        await patchPipeline(group.slug, { activeIndex: idx, activeItemId: existingItem.id });
+      } else {
+        await patchPipeline(group.slug, { addAssetId: asset.id });
+      }
+
+      publishLocalUpdate({ groupId: group.slug, mediaId: asset.id });
+      await fetchGroups();
+    } catch {
+      showToast("Unable to update pipeline", "error");
+    }
+  };
+
+  const handleActivateSlide = async (group: MediaGroup, item: MediaGroupItem, index: number) => {
+    try {
+      await patchPipeline(group.slug, { activeIndex: index, activeItemId: item.id });
+      publishLocalUpdate({ groupId: group.slug });
+      await fetchGroups();
+    } catch {
+      showToast("Unable to update pipeline", "error");
+    }
+  };
+
+  const handleSlideDragStart = (groupId: string, index: number) => {
+    setDraggedSlide({ groupId, index });
+  };
+
+  const handleSlideDragOver = (e: DragEvent<HTMLDivElement>, index: number) => {
+    e.preventDefault();
+    setDragOverSlideIndex(index);
+  };
+
+  const handleSlideDragEnd = () => {
+    setDraggedSlide(null);
+    setDragOverSlideIndex(null);
+  };
+
+  const handleSlideDrop = async (group: MediaGroup, targetIndex: number) => {
+    if (!draggedSlide || draggedSlide.groupId !== group.id) return;
+    const sourceIndex = draggedSlide.index;
+    handleSlideDragEnd();
+    if (sourceIndex === targetIndex) return;
+
+    const enabledItems = group.items.filter((item) => item.enabled);
+    const activeItem = enabledItems.find((item) => item.id === group.activeItemId);
+    const activeIndex = activeItem ? enabledItems.indexOf(activeItem) : -1;
+
+    const nextItems = [...enabledItems];
+    const [moved] = nextItems.splice(sourceIndex, 1);
+    nextItems.splice(targetIndex, 0, moved);
+
+    let nextActiveIndex = activeIndex;
+    if (activeIndex === sourceIndex) {
+      nextActiveIndex = targetIndex;
+    } else if (activeIndex > sourceIndex && activeIndex <= targetIndex) {
+      nextActiveIndex = activeIndex - 1;
+    } else if (activeIndex < sourceIndex && activeIndex >= targetIndex) {
+      nextActiveIndex = activeIndex + 1;
+    }
+
+    try {
+      await patchPipeline(group.slug, {
+        itemIds: nextItems.map((item) => item.id),
+        activeIndex: nextActiveIndex,
+        activeItemId: nextItems[nextActiveIndex]?.id ?? null,
+      });
+      publishLocalUpdate({ groupId: group.slug });
+      await fetchGroups();
+    } catch {
+      showToast("Unable to save slide order", "error");
+    }
+  };
+
+  const handleAddField = async () => {
+    const name = newFieldName.trim();
+    if (!name || isAddingField) return;
+
+    setIsAddingField(true);
+    try {
+      const res = await fetch("/api/media-groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: name, controlKind: newFieldKind }),
+      });
+      if (!res.ok) throw new Error("Failed to add field");
+      const created = (await res.json()) as MediaGroup;
+
+      setOpenGroups((prev) => ({ ...prev, [created.id]: true }));
+      showToast(`Field "${name}" added`, "success");
+      setIsAddFieldModalOpen(false);
+      setNewFieldName("");
+      setNewFieldKind("PAGE_SEQUENCE");
+      publishLocalUpdate({ groupAdded: created.slug });
+      await fetchGroups();
+    } catch {
+      showToast("Unable to add field", "error");
+    } finally {
+      setIsAddingField(false);
+    }
+  };
+
+  const closeAddFieldModal = () => {
+    if (isAddingField) return;
+    setIsAddFieldModalOpen(false);
+    setNewFieldName("");
+    setNewFieldKind("PAGE_SEQUENCE");
+  };
+
   const totalSize = assets.reduce((acc, curr) => acc + curr.size, 0);
   const imagesCount = assets.filter((a) => a.type.startsWith("image/")).length;
   const pdfsCount = assets.filter((a) => a.type === "application/pdf").length;
-  const activeBhrtAssetId =
-    bhrtActiveIdx !== -1 ? assets.find((a) => a.url === bhrtSlides[bhrtActiveIdx])?.id ?? null : null;
-  const activeVideoAssetId =
-    videoActiveIdx !== -1 ? assets.find((a) => a.url === videoSlides[videoActiveIdx])?.id ?? null : null;
-  const activeWliAssetId =
-    wliActiveIdx !== -1 ? assets.find((a) => a.url === wliSlides[wliActiveIdx])?.id ?? null : null;
-  const activeUsecaseAssetId =
-    usecaseActiveIdx !== -1
-      ? assets.find((a) => a.url === usecaseSlides[usecaseActiveIdx])?.id ?? null
-      : null;
-  const isAssetInPipeline = (pipeline: PipelineKey, assetId: string) =>
-    groupItems[pipeline].some((item) => item.asset.id === assetId);
-  const assetPipelineLabels = (asset: Asset) =>
-    asset.pipelines?.length
-      ? asset.pipelines.map((pipeline) =>
-          pipeline.active ? `${pipeline.displayName}*` : pipeline.displayName,
-        )
-      : [
-          isAssetInPipeline("bhrt", asset.id) ? "BHRT" : null,
-          isAssetInPipeline("video", asset.id) ? "Video" : null,
-          isAssetInPipeline("wli", asset.id) ? "What lies inside?" : null,
-          isAssetInPipeline("usecase", asset.id) ? "USE CASE" : null,
-        ].filter(Boolean);
-
-  // Pipeline config for rendering
-  const pipelines: {
-    key: PipelineKey;
-    label: string;
-    color: string;
-    activeColor: string;
-    borderActive: string;
-    bgActive: string;
-    shadowActive: string;
-    badgeBg: string;
-    badgeBorder: string;
-    badgeText: string;
-    glowColor: string;
-    indicatorColor: string;
-    slides: string[];
-    activeIdx: number;
-    setActiveIdx: (idx: number) => void;
-    isOpen: boolean;
-    setOpen: (v: boolean) => void;
-    activeAssetId: string | null;
-    isVideo?: boolean;
-  }[] = [
-    {
-      key: "bhrt",
-      label: "BHRT",
-      color: "text-amber-400",
-      activeColor: "group-hover/hdr:text-amber-400",
-      borderActive: "border-amber-500",
-      bgActive: "bg-amber-500/5",
-      shadowActive: "shadow-[0_0_15px_rgba(245,158,11,0.2)]",
-      badgeBg: "bg-amber-500/10",
-      badgeBorder: "border-amber-500/20",
-      badgeText: "text-amber-400",
-      glowColor: "bg-amber-400",
-      indicatorColor: "#f59e0b",
-      slides: bhrtSlides,
-      activeIdx: bhrtActiveIdx,
-      setActiveIdx: (idx) => setBhrtActiveIdx(idx),
-      isOpen: bhrtOpen,
-      setOpen: setBhrtOpen,
-      activeAssetId: activeBhrtAssetId,
-    },
-    {
-      key: "video",
-      label: "Video",
-      color: "text-cyan-400",
-      activeColor: "group-hover/hdr:text-cyan-400",
-      borderActive: "border-cyan-400",
-      bgActive: "bg-cyan-400/5",
-      shadowActive: "shadow-[0_0_15px_rgba(6,182,212,0.2)]",
-      badgeBg: "bg-cyan-500/10",
-      badgeBorder: "border-cyan-400/20",
-      badgeText: "text-cyan-400",
-      glowColor: "bg-cyan-400",
-      indicatorColor: "#22d3ee",
-      slides: videoSlides,
-      activeIdx: videoActiveIdx,
-      setActiveIdx: (idx) => setVideoActiveIdx(idx),
-      isOpen: videoOpen,
-      setOpen: setVideoOpen,
-      activeAssetId: activeVideoAssetId,
-      isVideo: true,
-    },
-    {
-      key: "wli",
-      label: "What lies inside?",
-      color: "text-emerald-400",
-      activeColor: "group-hover/hdr:text-emerald-400",
-      borderActive: "border-emerald-500",
-      bgActive: "bg-emerald-500/5",
-      shadowActive: "shadow-[0_0_15px_rgba(16,185,129,0.2)]",
-      badgeBg: "bg-emerald-500/10",
-      badgeBorder: "border-emerald-500/20",
-      badgeText: "text-emerald-400",
-      glowColor: "bg-emerald-400",
-      indicatorColor: "#10b981",
-      slides: wliSlides,
-      activeIdx: wliActiveIdx,
-      setActiveIdx: (idx) => setWliActiveIdx(idx),
-      isOpen: wliOpen,
-      setOpen: setWliOpen,
-      activeAssetId: activeWliAssetId,
-    },
-    {
-      key: "usecase",
-      label: "USE CASE",
-      color: "text-purple-400",
-      activeColor: "group-hover/hdr:text-purple-400",
-      borderActive: "border-purple-500",
-      bgActive: "bg-purple-500/5",
-      shadowActive: "shadow-[0_0_15px_rgba(168,85,247,0.2)]",
-      badgeBg: "bg-purple-500/10",
-      badgeBorder: "border-purple-500/20",
-      badgeText: "text-purple-400",
-      glowColor: "bg-purple-400",
-      indicatorColor: "#a855f7",
-      slides: usecaseSlides,
-      activeIdx: usecaseActiveIdx,
-      setActiveIdx: (idx) => setUsecaseActiveIdx(idx),
-      isOpen: usecaseOpen,
-      setOpen: setUsecaseOpen,
-      activeAssetId: activeUsecaseAssetId,
-    },
-  ];
 
   return (
     <main className="relative min-h-screen w-full flex flex-col items-center p-6 md:p-12 lg:p-20 overflow-hidden bg-[#070b14] text-slate-100 font-sans">
       {/* Background radial glow effects */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-cyan-950/20 via-slate-950 to-slate-950 pointer-events-none" />
-      
+
       {/* Grid Overlay */}
-      <div 
-        className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:4rem_4rem] pointer-events-none" 
+      <div
+        className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:4rem_4rem] pointer-events-none"
         style={{ maskImage: "radial-gradient(ellipse at center, black, transparent 80%)", WebkitMaskImage: "radial-gradient(ellipse at center, black, transparent 80%)" }}
       />
 
@@ -534,8 +408,8 @@ export default function AdminPage() {
       {/* Toast Notification */}
       {toast && (
         <div className={`fixed top-6 right-6 z-50 flex items-center gap-3 px-5 py-3.5 rounded-xl border backdrop-blur-xl shadow-2xl transition-all duration-300 ${
-          toast.type === "success" 
-            ? "bg-emerald-950/80 border-emerald-500/35 text-emerald-300" 
+          toast.type === "success"
+            ? "bg-emerald-950/80 border-emerald-500/35 text-emerald-300"
             : "bg-rose-950/80 border-rose-500/35 text-rose-300"
         }`}>
           {toast.type === "success" ? (
@@ -598,7 +472,7 @@ export default function AdminPage() {
         <section className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold tracking-tight text-white">Repository Assets</h2>
-            <p className="text-xs text-slate-400 font-light mt-1">Uploaded files accessible dynamically by BHRT, Video, What lies inside? and USE CASE viewports.</p>
+            <p className="text-xs text-slate-400 font-light mt-1">Uploaded files accessible dynamically by every active pipeline field below.</p>
           </div>
           <button
             onClick={() => setIsModalOpen(true)}
@@ -652,11 +526,11 @@ export default function AdminPage() {
                 </thead>
                 <tbody className="divide-y divide-white/5 text-sm">
                   {assets.map((asset) => {
-                    const isInBhrt = isAssetInPipeline("bhrt", asset.id);
-                    const isInVideo = isAssetInPipeline("video", asset.id);
-                    const isInWli = isAssetInPipeline("wli", asset.id);
-                    const isInUsecase = isAssetInPipeline("usecase", asset.id);
-                    const assignedPipelines = assetPipelineLabels(asset);
+                    const assignedPipelines = groups
+                      .filter((group) => isAssetInPipeline(group, asset.id))
+                      .map((group) =>
+                        activeAssetIdForGroup(group) === asset.id ? `${group.displayName}*` : group.displayName,
+                      );
 
                     return (
                     <tr key={asset.id} className="group hover:bg-white/[0.01] transition-colors">
@@ -697,62 +571,33 @@ export default function AdminPage() {
                       <td className="py-4 pr-4 text-slate-400 text-xs hidden sm:table-cell">{new Date(asset.uploadedAt).toLocaleString()}</td>
                       <td className="py-4 px-2">
                         <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                          {/* BHRT Button */}
-                          <button
-                            onClick={() => handleTogglePipelineAsset("bhrt", asset)}
-                            title={isInBhrt ? "Assigned to BHRT. Click to make active." : "Add to BHRT pipeline"}
-                            className={`px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-bold tracking-wider transition-all duration-200 border cursor-pointer ${
-                              activeBhrtAssetId === asset.id
-                                ? "bg-amber-400 border-amber-400 text-slate-950 shadow-[0_0_10px_rgba(245,158,11,0.25)]"
-                                : isInBhrt
-                                ? "bg-amber-400/10 border-amber-400/60 text-amber-300 hover:bg-amber-400/15"
-                                : "bg-transparent border-amber-500/20 text-amber-400/60 hover:text-amber-400 hover:border-amber-500/40 hover:bg-amber-500/5"
-                            }`}
-                          >
-                            {activeBhrtAssetId === asset.id ? "BHRT*" : "BHRT"}
-                          </button>
-                          {/* Video Button */}
-                          <button
-                            onClick={() => handleTogglePipelineAsset("video", asset)}
-                            title={isInVideo ? "Assigned to Video. Click to make active." : "Add to Video pipeline"}
-                            className={`px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-bold tracking-wider transition-all duration-200 border cursor-pointer ${
-                              activeVideoAssetId === asset.id
-                                ? "bg-cyan-400 border-cyan-400 text-slate-950 shadow-[0_0_10px_rgba(34,211,238,0.25)]"
-                                : isInVideo
-                                ? "bg-cyan-400/10 border-cyan-400/60 text-cyan-300 hover:bg-cyan-400/15"
-                                : "bg-transparent border-cyan-500/20 text-cyan-400/60 hover:text-cyan-400 hover:border-cyan-500/40 hover:bg-cyan-500/5"
-                            }`}
-                          >
-                            {activeVideoAssetId === asset.id ? "VID*" : "VID"}
-                          </button>
-                          {/* WLI Button */}
-                          <button
-                            onClick={() => handleTogglePipelineAsset("wli", asset)}
-                            title={isInWli ? "Assigned to What lies inside?. Click to make active." : "Add to What lies inside? pipeline"}
-                            className={`px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-bold tracking-wider transition-all duration-200 border cursor-pointer ${
-                              activeWliAssetId === asset.id
-                                ? "bg-emerald-400 border-emerald-400 text-slate-950 shadow-[0_0_10px_rgba(16,185,129,0.25)]"
-                                : isInWli
-                                ? "bg-emerald-400/10 border-emerald-400/60 text-emerald-300 hover:bg-emerald-400/15"
-                                : "bg-transparent border-emerald-500/20 text-emerald-400/60 hover:text-emerald-400 hover:border-emerald-500/40 hover:bg-emerald-500/5"
-                            }`}
-                          >
-                            {activeWliAssetId === asset.id ? "WLI*" : "WLI"}
-                          </button>
-                          {/* USE CASE Button */}
-                          <button
-                            onClick={() => handleTogglePipelineAsset("usecase", asset)}
-                            title={isInUsecase ? "Assigned to USE CASE. Click to make active." : "Add to USE CASE pipeline"}
-                            className={`px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-bold tracking-wider transition-all duration-200 border cursor-pointer ${
-                              activeUsecaseAssetId === asset.id
-                                ? "bg-purple-400 border-purple-400 text-slate-950 shadow-[0_0_10px_rgba(168,85,247,0.25)]"
-                                : isInUsecase
-                                ? "bg-purple-400/10 border-purple-400/60 text-purple-300 hover:bg-purple-400/15"
-                                : "bg-transparent border-purple-500/20 text-purple-400/60 hover:text-purple-400 hover:border-purple-500/40 hover:bg-purple-500/5"
-                            }`}
-                          >
-                            {activeUsecaseAssetId === asset.id ? "USE*" : "USE"}
-                          </button>
+                          {groups.map((group, idx) => {
+                            const palette = paletteFor(idx);
+                            const inPipeline = isAssetInPipeline(group, asset.id);
+                            const isActive = activeAssetIdForGroup(group) === asset.id;
+                            const abbr = abbreviate(group.displayName);
+
+                            return (
+                              <button
+                                key={group.id}
+                                onClick={() => void handleTogglePipelineAsset(group, asset)}
+                                title={
+                                  inPipeline
+                                    ? `Assigned to ${group.displayName}. Click to make active.`
+                                    : `Add to ${group.displayName} pipeline`
+                                }
+                                className={`px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-bold tracking-wider transition-all duration-200 border cursor-pointer ${
+                                  isActive
+                                    ? `${palette.glowColor} border-transparent text-slate-950 shadow-lg`
+                                    : inPipeline
+                                    ? `${palette.badgeBg} ${palette.badgeBorder} ${palette.badgeText} hover:opacity-80`
+                                    : `bg-transparent border-white/10 ${palette.color}/60 hover:${palette.color} hover:border-white/20`
+                                }`}
+                              >
+                                {isActive ? `${abbr}*` : abbr}
+                              </button>
+                            );
+                          })}
                         </div>
                         <div className="mt-2 text-center text-[10px] font-mono text-slate-500">
                           {assignedPipelines.length > 0
@@ -803,25 +648,32 @@ export default function AdminPage() {
           </div>
 
           <div className="flex flex-col gap-6">
-            {pipelines.map((pl) => (
-              <div key={pl.key} className="p-6 bg-slate-900/10 backdrop-blur-xl border border-white/5 rounded-3xl space-y-4">
+            {groups.map((group, idx) => {
+              const palette = paletteFor(idx);
+              const enabledItems = group.items.filter((item) => item.enabled);
+              const activeItem = enabledItems.find((item) => item.id === group.activeItemId) ?? null;
+              const activeIdx = activeItem ? enabledItems.indexOf(activeItem) : -1;
+              const isOpen = openGroups[group.id] ?? true;
+
+              return (
+              <div key={group.id} className="p-6 bg-slate-900/10 backdrop-blur-xl border border-white/5 rounded-3xl space-y-4">
                 {/* Pipeline header */}
                 <div
-                  onClick={() => pl.setOpen(!pl.isOpen)}
+                  onClick={() => setOpenGroups((prev) => ({ ...prev, [group.id]: !isOpen }))}
                   className="flex justify-between items-center cursor-pointer select-none group/hdr hover:text-white transition-colors"
                 >
                   <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${pl.glowColor} animate-pulse`} />
-                    <span className={`text-sm font-mono font-bold tracking-wider ${pl.color} uppercase`}>
-                      {pl.label}
+                    <span className={`w-2 h-2 rounded-full ${palette.glowColor} animate-pulse`} />
+                    <span className={`text-sm font-mono font-bold tracking-wider ${palette.color} uppercase`}>
+                      {group.displayName}
                     </span>
                   </div>
                   <div className="flex items-center gap-4">
-                    <span className={`text-xs font-mono ${pl.badgeBg} ${pl.badgeText} border ${pl.badgeBorder} px-2 py-0.5 rounded`}>
-                      ACTIVE: {pl.activeIdx !== -1 ? pl.slides[pl.activeIdx]?.split("/").pop() : "NONE"}
+                    <span className={`text-xs font-mono ${palette.badgeBg} ${palette.badgeText} border ${palette.badgeBorder} px-2 py-0.5 rounded`}>
+                      ACTIVE: {activeIdx !== -1 ? activeItem?.asset.name : "NONE"}
                     </span>
                     <svg
-                      className={`w-4 h-4 text-slate-500 ${pl.activeColor} transition-transform duration-300 ${pl.isOpen ? "rotate-180" : ""}`}
+                      className={`w-4 h-4 text-slate-500 ${palette.activeColor} transition-transform duration-300 ${isOpen ? "rotate-180" : ""}`}
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -833,48 +685,55 @@ export default function AdminPage() {
                 </div>
 
                 {/* Slide cards */}
-                {pl.isOpen && (
+                {isOpen && (
                   <div className="flex gap-4 overflow-x-auto pb-3">
-                    {pl.slides.map((slide, idx) => {
-                      const isActive = pl.activeIdx === idx;
-                      const isDraggingThis = draggedSlide?.pipeline === pl.key && draggedSlide.index === idx;
-                      const fileName = slide.split("/").pop();
-                      const isVideoSlide = slide.endsWith(".mp4") || slide.endsWith(".webm") || slide.endsWith(".mov");
+                    {enabledItems.length === 0 ? (
+                      <p className="text-xs text-slate-500 font-mono py-6">
+                        No assets assigned yet. Use the pipeline buttons above to add some.
+                      </p>
+                    ) : (
+                      enabledItems.map((item, slideIdx) => {
+                      const isActive = activeIdx === slideIdx;
+                      const isDraggingThis = draggedSlide?.groupId === group.id && draggedSlide.index === slideIdx;
+                      const asset = item.asset;
+                      const fileName = asset.name;
+                      const slideUrl = asset.inlineUrl ?? asset.url;
+                      const isVideoSlide = asset.mediaType === "VIDEO" || asset.type.startsWith("video/");
 
                       return (
                         <div
-                          key={idx}
+                          key={item.id}
                           draggable
-                          onDragStart={() => handleSlideDragStart(pl.key, idx)}
-                          onDragOver={(e) => handleSlideDragOver(e, idx)}
+                          onDragStart={() => handleSlideDragStart(group.id, slideIdx)}
+                          onDragOver={(e) => handleSlideDragOver(e, slideIdx)}
                           onDragEnd={handleSlideDragEnd}
-                          onDrop={() => handleSlideDrop(pl.key, idx)}
+                          onDrop={() => void handleSlideDrop(group, slideIdx)}
                           className="flex flex-col gap-1.5 shrink-0 relative"
                         >
                           {/* Drag insert indicator */}
-                          {draggedSlide && draggedSlide.pipeline === pl.key && dragOverSlideIndex === idx && draggedSlide.index !== idx && (
+                          {draggedSlide && draggedSlide.groupId === group.id && dragOverSlideIndex === slideIdx && draggedSlide.index !== slideIdx && (
                             <div
                               className={`absolute top-0 bottom-0 w-1 rounded-full animate-pulse z-30 ${
-                                draggedSlide.index > idx ? "left-0 -translate-x-1" : "right-0 translate-x-1"
+                                draggedSlide.index > slideIdx ? "left-0 -translate-x-1" : "right-0 translate-x-1"
                               }`}
-                              style={{ backgroundColor: pl.indicatorColor, boxShadow: `0 0 10px ${pl.indicatorColor}` }}
+                              style={{ backgroundColor: palette.indicatorColor, boxShadow: `0 0 10px ${palette.indicatorColor}` }}
                             />
                           )}
 
                           <div className="flex justify-between items-center px-1">
-                            <span className="text-[10px] font-mono font-bold text-slate-500">INDEX {idx + 1}</span>
+                            <span className="text-[10px] font-mono font-bold text-slate-500">INDEX {slideIdx + 1}</span>
                           </div>
 
                           <div
-                            onClick={() => pl.setActiveIdx(idx)}
+                            onClick={() => void handleActivateSlide(group, item, slideIdx)}
                             className={`w-44 border rounded-2xl overflow-hidden p-2 flex flex-col gap-2.5 transition-all duration-300 transform select-none cursor-grab active:cursor-grabbing ${
                               isDraggingThis
                                 ? `opacity-20 border-dashed scale-95`
                                 : isActive
-                                ? `${pl.borderActive} ${pl.bgActive} ${pl.shadowActive} -translate-y-1`
+                                ? `${palette.borderActive} ${palette.bgActive} ${palette.shadowActive} -translate-y-1`
                                 : "border-white/10 bg-slate-950/60 hover:border-white/20 hover:bg-slate-950/80 hover:-translate-y-0.5"
                             }`}
-                            style={isDraggingThis ? { borderColor: pl.indicatorColor } : {}}
+                            style={isDraggingThis ? { borderColor: palette.indicatorColor } : {}}
                           >
                             {/* Slide Viewport */}
                             <div className="relative aspect-[16/10] w-full rounded-lg overflow-hidden border border-white/5 bg-slate-900 flex items-center justify-center">
@@ -889,7 +748,7 @@ export default function AdminPage() {
                               ) : (
                                 /* eslint-disable-next-line @next/next/no-img-element */
                                 <img
-                                  src={slide}
+                                  src={slideUrl}
                                   alt={fileName || "Slide"}
                                   className="w-full h-full object-cover pointer-events-none"
                                 />
@@ -902,7 +761,7 @@ export default function AdminPage() {
                                 {fileName}
                               </span>
                               {isActive && (
-                                <span className={`text-[9px] font-mono font-bold ${pl.badgeText} ${pl.badgeBg} px-1.5 py-0.5 rounded border ${pl.badgeBorder} shrink-0`}>
+                                <span className={`text-[9px] font-mono font-bold ${palette.badgeText} ${palette.badgeBg} px-1.5 py-0.5 rounded border ${palette.badgeBorder} shrink-0`}>
                                   ACTIVE
                                 </span>
                               )}
@@ -910,11 +769,25 @@ export default function AdminPage() {
                           </div>
                         </div>
                       );
-                    })}
+                      })
+                    )}
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
+
+            {/* Add More Field */}
+            <button
+              type="button"
+              onClick={() => setIsAddFieldModalOpen(true)}
+              className="flex items-center justify-center gap-2 py-5 px-6 text-xs font-mono font-bold tracking-wider text-slate-400 hover:text-cyan-400 border-2 border-dashed border-white/10 hover:border-cyan-500/30 rounded-3xl transition-all duration-200 hover:bg-cyan-500/5 cursor-pointer"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              ADD MORE FIELD
+            </button>
           </div>
         </section>
       </div>
@@ -1031,6 +904,106 @@ export default function AdminPage() {
                 className="py-3 px-5 text-xs font-mono font-bold tracking-wider rounded-xl bg-cyan-400 hover:bg-cyan-300 text-[#070b14] transition-all shadow-[0_0_20px_rgba(34,211,238,0.15)] disabled:opacity-30 disabled:shadow-none cursor-pointer"
               >
                 {isUploading ? "UPLOADING..." : "UPLOAD FILES"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Field Modal */}
+      {isAddFieldModalOpen && (
+        <div
+          className="fixed inset-0 bg-[#040710]/85 backdrop-blur-md flex items-center justify-center z-50 p-4"
+          onClick={closeAddFieldModal}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-field-title"
+            className="w-full max-w-md bg-slate-950 border border-white/10 rounded-3xl p-6 md:p-7 shadow-2xl flex flex-col gap-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center pb-2 border-b border-white/5">
+              <div>
+                <h3 id="add-field-title" className="text-lg font-bold text-white">Add New Field</h3>
+                <p className="text-xs text-slate-400 font-light mt-0.5">
+                  Creates a new pipeline here and on the control center automatically.
+                </p>
+              </div>
+              <button
+                onClick={closeAddFieldModal}
+                disabled={isAddingField}
+                className="p-2 rounded-lg hover:bg-slate-900 text-slate-400 hover:text-white transition-colors cursor-pointer disabled:opacity-30"
+                aria-label="Close add field dialog"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">Field Name</label>
+              <input
+                type="text"
+                value={newFieldName}
+                onChange={(e) => setNewFieldName(e.target.value)}
+                placeholder="e.g. Testimonials"
+                disabled={isAddingField}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void handleAddField();
+                }}
+                autoFocus
+                className="w-full py-3 px-4 text-sm rounded-xl bg-slate-900/50 border border-white/10 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/40"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">Content Type</label>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={isAddingField}
+                  onClick={() => setNewFieldKind("PAGE_SEQUENCE")}
+                  className={`flex-1 py-2.5 px-4 text-xs font-mono font-bold rounded-xl border transition-all cursor-pointer ${
+                    newFieldKind === "PAGE_SEQUENCE"
+                      ? "bg-cyan-400/10 border-cyan-400/60 text-cyan-300"
+                      : "border-white/10 text-slate-400 hover:border-white/20"
+                  }`}
+                >
+                  IMAGE / PDF SLIDES
+                </button>
+                <button
+                  type="button"
+                  disabled={isAddingField}
+                  onClick={() => setNewFieldKind("VIDEO")}
+                  className={`flex-1 py-2.5 px-4 text-xs font-mono font-bold rounded-xl border transition-all cursor-pointer ${
+                    newFieldKind === "VIDEO"
+                      ? "bg-cyan-400/10 border-cyan-400/60 text-cyan-300"
+                      : "border-white/10 text-slate-400 hover:border-white/20"
+                  }`}
+                >
+                  VIDEO
+                </button>
+              </div>
+            </div>
+
+            <div className="flex gap-3 justify-end pt-2 border-t border-white/5">
+              <button
+                type="button"
+                disabled={isAddingField}
+                onClick={closeAddFieldModal}
+                className="py-3 px-5 text-xs font-mono font-bold tracking-wider rounded-xl border border-white/5 hover:border-white/10 text-slate-400 hover:text-white transition-all cursor-pointer disabled:opacity-40"
+              >
+                CANCEL
+              </button>
+              <button
+                type="button"
+                disabled={isAddingField || !newFieldName.trim()}
+                onClick={() => void handleAddField()}
+                className="py-3 px-5 text-xs font-mono font-bold tracking-wider rounded-xl bg-cyan-400 hover:bg-cyan-300 text-[#070b14] transition-all shadow-[0_0_20px_rgba(34,211,238,0.15)] disabled:opacity-30 disabled:shadow-none cursor-pointer"
+              >
+                {isAddingField ? "ADDING..." : "ADD FIELD"}
               </button>
             </div>
           </div>
