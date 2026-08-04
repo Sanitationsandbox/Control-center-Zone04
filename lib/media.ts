@@ -79,6 +79,7 @@ export function mediaGroupResponse(
     displayName: group.displayName,
     controlKind: group.controlKind satisfies ControlKind,
     sortOrder: group.sortOrder,
+    visible: group.visible,
     activeIndex: group.activeIndex,
     activeItemId: group.activeItemId,
     items: group.items
