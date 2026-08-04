@@ -17,6 +17,7 @@ type UpdateBody = {
   activeItemId?: unknown;
   addAssetId?: unknown;
   removeAssetId?: unknown;
+  visible?: unknown;
 };
 
 function json(data: unknown, status = 200) {
@@ -58,6 +59,17 @@ export async function PATCH(request: Request, context: Params) {
   });
 
   if (!group) return json({ error: "Media group not found" }, 404);
+
+  if (body.visible !== undefined) {
+    if (typeof body.visible !== "boolean") {
+      return json({ error: "visible must be a boolean" }, 400);
+    }
+
+    await prisma.mediaGroup.update({
+      where: { id: group.id },
+      data: { visible: body.visible },
+    });
+  }
 
   if (body.itemIds !== undefined) {
     if (!isStringArray(body.itemIds)) {
