@@ -24,18 +24,20 @@ type ControlCenterProps = {
 };
 
 function toOptions(groups: MediaGroupResponse[]): ControlOption[] {
-  return groups.map((group) => {
-    const copy = groupCopy[group.slug as MediaGroupSlug];
+  return groups
+    .filter((group) => group.visible)
+    .map((group) => {
+      const copy = groupCopy[group.slug as MediaGroupSlug];
 
-    return {
-      id: group.id,
-      slug: group.slug as MediaGroupSlug,
-      controlKind: group.controlKind,
-      label: copy?.label ?? group.displayName,
-      shortName: copy?.shortName ?? group.displayName,
-      tagline: copy?.tagline ?? "Dedicated content pipeline.",
-    };
-  });
+      return {
+        id: group.id,
+        slug: group.slug as MediaGroupSlug,
+        controlKind: group.controlKind,
+        label: copy?.label ?? group.displayName,
+        shortName: copy?.shortName ?? group.displayName,
+        tagline: copy?.tagline ?? "Dedicated content pipeline.",
+      };
+    });
 }
 
 export function ControlCenter({
