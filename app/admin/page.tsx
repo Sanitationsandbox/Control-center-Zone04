@@ -29,6 +29,7 @@ interface MediaGroup {
   displayName: string;
   controlKind: "PAGE_SEQUENCE" | "VIDEO";
   sortOrder: number;
+  visible: boolean;
   activeIndex: number;
   activeItemId: string | null;
   items: MediaGroupItem[];
@@ -298,6 +299,21 @@ export default function AdminPage() {
       await fetchGroups();
     } catch {
       showToast("Unable to update pipeline", "error");
+    }
+  };
+
+  const handleToggleGroupVisible = async (group: MediaGroup) => {
+    const nextVisible = !group.visible;
+    try {
+      await patchPipeline(group.slug, { visible: nextVisible });
+      publishLocalUpdate({ groupId: group.slug, visible: nextVisible });
+      showToast(
+        nextVisible ? `"${group.displayName}" is now visible on the control center` : `"${group.displayName}" is hidden from the control center`,
+        "success",
+      );
+      await fetchGroups();
+    } catch {
+      showToast("Unable to update field visibility", "error");
     }
   };
 
@@ -591,7 +607,7 @@ export default function AdminPage() {
                                     ? `${palette.glowColor} border-transparent text-slate-950 shadow-lg`
                                     : inPipeline
                                     ? `${palette.badgeBg} ${palette.badgeBorder} ${palette.badgeText} hover:opacity-80`
-                                    : `bg-transparent border-white/10 ${palette.color}/60 hover:${palette.color} hover:border-white/20`
+                                    : "bg-transparent border-white/10 text-slate-500 hover:text-slate-300 hover:border-white/20"
                                 }`}
                               >
                                 {isActive ? `${abbr}*` : abbr}
@@ -656,22 +672,54 @@ export default function AdminPage() {
               const isOpen = openGroups[group.id] ?? true;
 
               return (
-              <div key={group.id} className="p-6 bg-slate-900/10 backdrop-blur-xl border border-white/5 rounded-3xl space-y-4">
+              <div
+                key={group.id}
+                className={`p-6 bg-slate-900/10 backdrop-blur-xl border border-white/5 rounded-3xl space-y-4 transition-opacity duration-200 ${
+                  group.visible ? "" : "opacity-50"
+                }`}
+              >
                 {/* Pipeline header */}
                 <div
                   onClick={() => setOpenGroups((prev) => ({ ...prev, [group.id]: !isOpen }))}
                   className="flex justify-between items-center cursor-pointer select-none group/hdr hover:text-white transition-colors"
                 >
                   <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${palette.glowColor} animate-pulse`} />
+                    <span className={`w-2 h-2 rounded-full ${palette.glowColor} ${group.visible ? "animate-pulse" : ""}`} />
                     <span className={`text-sm font-mono font-bold tracking-wider ${palette.color} uppercase`}>
                       {group.displayName}
                     </span>
+                    {!group.visible && (
+                      <span className="text-[9px] font-mono font-bold text-slate-400 bg-slate-800/60 border border-white/10 px-1.5 py-0.5 rounded">
+                        HIDDEN
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-4">
                     <span className={`text-xs font-mono ${palette.badgeBg} ${palette.badgeText} border ${palette.badgeBorder} px-2 py-0.5 rounded`}>
                       ACTIVE: {activeIdx !== -1 ? activeItem?.asset.name : "NONE"}
                     </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleToggleGroupVisible(group);
+                      }}
+                      title={
+                        group.visible
+                          ? "Shown on the control center. Click to hide."
+                          : "Hidden from the control center. Click to show."
+                      }
+                      aria-pressed={group.visible}
+                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-200 cursor-pointer ${
+                        group.visible ? `${palette.glowColor} border-transparent` : "bg-slate-800 border-white/10"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform duration-200 ${
+                          group.visible ? "translate-x-[18px]" : "translate-x-[2px]"
+                        }`}
+                      />
+                    </button>
                     <svg
                       className={`w-4 h-4 text-slate-500 ${palette.activeColor} transition-transform duration-300 ${isOpen ? "rotate-180" : ""}`}
                       fill="none"
