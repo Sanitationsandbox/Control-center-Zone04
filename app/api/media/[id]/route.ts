@@ -1,5 +1,6 @@
 import { mediaAssetResponse } from "@/lib/media";
-import { broadcastUpdate } from "@/lib/broadcast";
+import { publishControlState } from "@/lib/control-pubsub";
+import { advanceControlState } from "@/lib/control-state";
 import { prisma } from "@/lib/prisma";
 import { deleteStoredObject, resourceTypeFromContentType } from "@/lib/uploads";
 
@@ -34,7 +35,7 @@ export async function DELETE(_request: Request, context: Params) {
 
   await deleteStoredObject(asset.objectName, resourceTypeFromContentType(asset.contentType));
   await prisma.mediaAsset.delete({ where: { id } });
-  broadcastUpdate("content-updated", { mediaId: id, deleted: true });
+  await publishControlState(await advanceControlState());
 
   return json({ success: true });
 }
