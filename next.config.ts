@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["cloudinary"],
+  serverExternalPackages: ["cloudinary", "pg", "ws"],
 };
 
 export default nextConfig;
