@@ -1,5 +1,6 @@
 import type { MediaType } from "./generated/prisma/client";
-import { broadcastUpdate } from "./broadcast";
+import { advanceControlState } from "./control-state";
+import { publishControlState } from "./control-pubsub";
 import { getMediaType, mediaAssetResponse } from "./media";
 import { prisma } from "./prisma";
 import { uploadStoredObject } from "./uploads";
@@ -82,23 +83,15 @@ export async function createMediaFromFormData(
           activeItemId: item.id,
         },
       });
-
-      broadcastUpdate("content-updated", {
-        groupId: groupSlug,
-        mediaId: asset.id,
-        itemId: item.id,
-      });
     }
 
     createdAssets.push(asset);
   }
 
-  if (!groupSlug) {
-    broadcastUpdate("content-updated", {
-      mediaIds: createdAssets.map((asset) => asset.id),
-      uploaded: true,
-    });
-  }
+  // One publish for the whole batch rather than one per file: every message
+  // carries the complete state anyway, so per-file sends would push the same
+  // payload to every wall N times over.
+  await publishControlState(await advanceControlState());
 
   return jsonNoStore(
     {
@@ -160,18 +153,9 @@ export async function createMediaFromMetadata(body: {
         activeItemId: item.id,
       },
     });
-
-    broadcastUpdate("content-updated", {
-      groupId: groupSlug,
-      mediaId: asset.id,
-      itemId: item.id,
-    });
-  } else {
-    broadcastUpdate("content-updated", {
-      mediaIds: [asset.id],
-      uploaded: true,
-    });
   }
+
+  await publishControlState(await advanceControlState());
 
   return jsonNoStore(
     {
