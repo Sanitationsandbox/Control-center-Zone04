@@ -1,8 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { DisplayControlResponse, NavigateDirection, PlaybackCommand } from "@/lib/display-control";
+import { useState } from "react";
+import type {
+  DisplayControlResponse,
+  NavigateDirection,
+  PlaybackCommand,
+} from "@/lib/display-control";
 import type { MediaGroupResponse, MediaGroupSlug } from "@/lib/media";
+import { broadcastLocalControlState, useControlSocket } from "@/lib/use-control-socket";
 import { groupCopy } from "../control-options";
 import styles from "../control-center.module.css";
 import { ControlCard } from "./ControlCard";
@@ -18,9 +23,7 @@ export type ControlOption = {
 };
 
 type ControlCenterProps = {
-  initialGroups: MediaGroupResponse[];
-  initialActiveGroupId: string | null;
-  initialVideoPlaying: boolean;
+  initialState: DisplayControlResponse;
 };
 
 function toOptions(groups: MediaGroupResponse[]): ControlOption[] {
@@ -41,50 +44,16 @@ function toOptions(groups: MediaGroupResponse[]): ControlOption[] {
   return options;
 }
 
-export function ControlCenter({
-  initialGroups,
-  initialActiveGroupId,
-  initialVideoPlaying,
-}: ControlCenterProps) {
-  const [groups, setGroups] = useState(initialGroups);
-  const [activeGroupId, setActiveGroupId] = useState(initialActiveGroupId);
-  const [, setVideoPlaying] = useState(initialVideoPlaying);
+export function ControlCenter({ initialState }: ControlCenterProps) {
+  const { state, status: socketStatus } = useControlSocket(initialState);
   const [isSending, setIsSending] = useState(false);
   const [status, setStatus] = useState("");
-  const isSendingRef = useRef(false);
 
-  const applyState = useCallback((data: DisplayControlResponse) => {
-    setGroups(data.groups);
-    setActiveGroupId(data.activeGroupId);
-    setVideoPlaying(data.videoPlaying);
-  }, []);
-
-  const refresh = useCallback(async () => {
-    if (isSendingRef.current) return;
-
-    try {
-      const response = await fetch("/api/display-control", { cache: "no-store" });
-      if (!response.ok) throw new Error("State request failed");
-      applyState((await response.json()) as DisplayControlResponse);
-    } catch {
-      // Ignore API offline errors silently
-    }
-  }, [applyState]);
-
-  useEffect(() => {
-    const initialTimer = window.setTimeout(() => void refresh(), 0);
-    const timer = window.setInterval(() => void refresh(), 700);
-    return () => {
-      window.clearTimeout(initialTimer);
-      window.clearInterval(timer);
-    };
-  }, [refresh]);
-
-  const options = toOptions(groups);
+  const options = toOptions(state?.groups ?? []);
+  const activeGroupId = state?.activeGroupId ?? null;
   const selectedOption = options.find((option) => option.id === activeGroupId) ?? null;
 
   async function send(body: unknown, pendingStatus: string, errorStatus: string) {
-    isSendingRef.current = true;
     setIsSending(true);
     setStatus(pendingStatus);
 
@@ -96,12 +65,15 @@ export function ControlCenter({
       });
 
       if (!response.ok) throw new Error("Command failed");
-      applyState((await response.json()) as DisplayControlResponse);
+
+      // The socket delivers this to every wall; the local broadcast is what makes
+      // a preview tab on this same device update instantly in development, where
+      // there is no socket at all.
+      broadcastLocalControlState((await response.json()) as DisplayControlResponse);
       setStatus("");
     } catch {
       setStatus(errorStatus);
     } finally {
-      isSendingRef.current = false;
       setIsSending(false);
     }
   }
@@ -133,6 +105,11 @@ export function ControlCenter({
   return (
     <main className={styles.page}>
       <div className={styles.glow} aria-hidden="true" />
+      {socketStatus === "connected" ? null : (
+        <p className={styles.connection} role="status">
+          {socketStatus === "connecting" ? "Connecting…" : "Reconnecting…"}
+        </p>
+      )}
       {selectedOption ? (
         <DetailScreen
           option={selectedOption}
