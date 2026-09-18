@@ -1,4 +1,5 @@
-import { broadcastUpdate } from "@/lib/broadcast";
+import { publishControlState } from "@/lib/control-pubsub";
+import { advanceControlState } from "@/lib/control-state";
 import { mediaGroupResponse } from "@/lib/media";
 import { ActiveSelectionError, applyActiveSelection } from "@/lib/media-groups";
 import { prisma } from "@/lib/prisma";
@@ -214,11 +215,7 @@ export async function PATCH(request: Request, context: Params) {
     },
   });
 
-  broadcastUpdate("content-updated", {
-    groupId: updatedGroup.slug,
-    activeIndex: updatedGroup.activeIndex,
-    activeItemId: updatedGroup.activeItemId,
-  });
+  await publishControlState(await advanceControlState());
 
   return json(mediaGroupResponse(updatedGroup));
 }

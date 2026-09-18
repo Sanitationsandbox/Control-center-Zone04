@@ -69,6 +69,21 @@
   text-align: center;
 }
 
+/* Connection banner. With polling gone there is nothing quietly papering over a
+   dead socket, so the operator has to be able to see it. */
+.connection {
+  position: absolute;
+  top: clamp(16px, 2vw, 32px);
+  right: clamp(16px, 2vw, 32px);
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(8, 24, 32, 0.72);
+  color: rgba(190, 255, 243, 0.9);
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+}
+
 .control {
   display: flex;
   min-height: clamp(190px, 21vw, 320px);
