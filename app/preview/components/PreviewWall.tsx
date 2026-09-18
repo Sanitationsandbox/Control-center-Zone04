@@ -1,41 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type { DisplayControlResponse } from "@/lib/display-control";
+import { useControlSocket } from "@/lib/use-control-socket";
 import styles from "../preview.module.css";
 import { ImageViewer } from "./ImageViewer";
 import { VideoViewer } from "./VideoViewer";
 
-const initialState: DisplayControlResponse = {
-  activeGroupId: null,
-  videoPlaying: false,
-  updatedAt: 0,
-  groups: [],
-};
-
 export function PreviewWall() {
-  const [state, setState] = useState<DisplayControlResponse>(initialState);
-
-  const refresh = useCallback(async () => {
-    try {
-      const response = await fetch("/api/display-control", { cache: "no-store" });
-      if (!response.ok) throw new Error("State request failed");
-      setState((await response.json()) as DisplayControlResponse);
-    } catch {
-      // Ignore API offline errors silently
-    }
-  }, []);
-
-  useEffect(() => {
-    const initialTimer = window.setTimeout(() => void refresh(), 0);
-    const timer = window.setInterval(() => void refresh(), 700);
-    return () => {
-      window.clearTimeout(initialTimer);
-      window.clearInterval(timer);
-    };
-  }, [refresh]);
-
-  const activeGroup = state.groups.find((group) => group.id === state.activeGroupId);
+  const { state } = useControlSocket();
+  const activeGroup = state?.groups.find((group) => group.id === state.activeGroupId);
 
   return (
     <main className={styles.wall}>
@@ -45,7 +17,7 @@ export function PreviewWall() {
             (activeGroup.items.find((item) => item.id === activeGroup.activeItemId) ??
               activeGroup.items[0])?.asset.url ?? ""
           }
-          playing={state.videoPlaying}
+          playing={state?.videoPlaying ?? false}
         />
       ) : activeGroup?.controlKind === "PAGE_SEQUENCE" ? (
         <ImageViewer
