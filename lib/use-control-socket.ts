@@ -41,6 +41,7 @@ export function useControlSocket(initialState: DisplayControlResponse | null = n
   const [status, setStatus] = useState<SocketStatus>("connecting");
   const [latency, setLatency] = useState<number | null>(null);
   const latestVersion = useRef(initialState?.version ?? 0);
+  const hasInitialState = useRef(initialState !== null);
 
   const applyState = useCallback((nextState: DisplayControlResponse) => {
     if (nextState.version < latestVersion.current) return;
@@ -88,7 +89,9 @@ export function useControlSocket(initialState: DisplayControlResponse | null = n
       });
     }
 
-    void resyncCurrentState();
+    if (!hasInitialState.current) {
+      void resyncCurrentState();
+    }
 
     if (!ABLY_SUBSCRIBE_KEY) {
       queueMicrotask(() => {
