@@ -1,16 +1,16 @@
 "use client";
 
+import { Realtime, type ConnectionStateChange, type InboundMessage } from "ably";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ControlServerMessage } from "@/lib/control-events";
+import type { ControlStateChangedMessage } from "@/lib/control-pubsub";
 import type { DisplayControlResponse } from "@/lib/display-control";
 
 export type SocketStatus = "connecting" | "connected" | "disconnected";
 
-const HEARTBEAT_INTERVAL_MS = 5_000;
-const HEARTBEAT_TIMEOUT_MS = 15_000;
-const DEV_FALLBACK_INTERVAL_MS = 1_000;
-const MAX_RECONNECT_DELAY_MS = 10_000;
-const ENABLE_DEV_HTTP_FALLBACK = process.env.NODE_ENV === "development";
+const ABLY_SUBSCRIBE_KEY = process.env.NEXT_PUBLIC_ABLY_SUBSCRIBE_KEY;
+const CONTROL_STATE_CHANNEL =
+  process.env.NEXT_PUBLIC_ABLY_CONTROL_CHANNEL || "zone04-control-state";
+const CONTROL_STATE_EVENT = "control-state-changed";
 const LOCAL_CONTROL_CHANNEL = "zone04-control-state";
 
 type LocalControlMessage = {
@@ -18,9 +18,14 @@ type LocalControlMessage = {
   state: DisplayControlResponse;
 };
 
-function getSocketUrl() {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/api/ws`;
+function isControlStateChangedMessage(data: unknown): data is ControlStateChangedMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "type" in data &&
+    data.type === "CONTROL_STATE_CHANGED" &&
+    "state" in data
+  );
 }
 
 export function broadcastLocalControlState(state: DisplayControlResponse) {
@@ -36,7 +41,6 @@ export function useControlSocket(initialState: DisplayControlResponse | null = n
   const [status, setStatus] = useState<SocketStatus>("connecting");
   const [latency, setLatency] = useState<number | null>(null);
   const latestVersion = useRef(initialState?.version ?? 0);
-  const socketRef = useRef<WebSocket | null>(null);
 
   const applyState = useCallback((nextState: DisplayControlResponse) => {
     if (nextState.version < latestVersion.current) return;
@@ -44,169 +48,108 @@ export function useControlSocket(initialState: DisplayControlResponse | null = n
     setState(nextState);
   }, []);
 
-  const sync = useCallback(() => {
-    const socket = socketRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({ type: "SYNC" }));
-  }, []);
+  const sync = useCallback(async () => {
+    try {
+      const response = await fetch("/api/display-control", { cache: "no-store" });
+      if (!response.ok) throw new Error("State request failed");
+      applyState((await response.json()) as DisplayControlResponse);
+    } catch {
+      setStatus("disconnected");
+    }
+  }, [applyState]);
 
   useEffect(() => {
     let cancelled = false;
     let localChannel: BroadcastChannel | undefined;
-    let reconnectTimer: number | undefined;
-    let heartbeatTimer: number | undefined;
-    let fallbackTimer: number | undefined;
-    let attempt = 0;
-    let pingId = 0;
-    let initialStateInFlight = false;
-    let lastPing: { id: number; at: number } | null = null;
-    let lastPongAt = Date.now();
+    let resyncInFlight = false;
 
-    /**
-     * One-shot bootstrap so a wall paints correct content before the socket
-     * finishes opening. This is not polling — it never repeats; every later
-     * update arrives over the socket.
-     */
-    async function loadInitialState() {
-      if (initialStateInFlight) return;
+    async function resyncCurrentState() {
+      if (resyncInFlight) return;
+      resyncInFlight = true;
 
-      initialStateInFlight = true;
       try {
         const response = await fetch("/api/display-control", { cache: "no-store" });
         if (!response.ok) throw new Error("State request failed");
-
         const data = (await response.json()) as DisplayControlResponse;
-        if (cancelled) return;
-
-        applyState(data);
-        if (ENABLE_DEV_HTTP_FALLBACK) {
-          setStatus("connected");
-        }
+        if (!cancelled) applyState(data);
       } catch {
-        // Only report offline if the socket hasn't already come up underneath us.
-        if (cancelled) return;
-        if (socketRef.current?.readyState === WebSocket.OPEN) return;
-        setStatus("disconnected");
+        if (!cancelled) setStatus("disconnected");
       } finally {
-        initialStateInFlight = false;
+        resyncInFlight = false;
       }
     }
 
-    function stopHeartbeat() {
-      if (heartbeatTimer) window.clearInterval(heartbeatTimer);
-      heartbeatTimer = undefined;
-      lastPing = null;
-    }
-
-    function stopFallback() {
-      if (fallbackTimer) window.clearInterval(fallbackTimer);
-      fallbackTimer = undefined;
-    }
-
-    function startHeartbeat(socket: WebSocket) {
-      stopHeartbeat();
-      lastPongAt = Date.now();
-
-      heartbeatTimer = window.setInterval(() => {
-        if (socket.readyState !== WebSocket.OPEN) return;
-
-        // A socket can sit in OPEN long after it has stopped delivering anything.
-        // Missing pongs are the only signal that this has happened, and with no
-        // polling behind it, a silently dead socket means a frozen wall.
-        if (Date.now() - lastPongAt > HEARTBEAT_TIMEOUT_MS) {
-          socket.close();
-          return;
-        }
-
-        pingId += 1;
-        lastPing = { id: pingId, at: performance.now() };
-        socket.send(JSON.stringify({ type: "PING", id: pingId }));
-      }, HEARTBEAT_INTERVAL_MS);
-    }
-
-    function connect() {
-      setStatus("connecting");
-
-      const socket = new WebSocket(getSocketUrl());
-      socketRef.current = socket;
-
-      socket.addEventListener("open", () => {
-        attempt = 0;
-        setStatus("connected");
-        startHeartbeat(socket);
-        socket.send(JSON.stringify({ type: "SYNC" }));
-      });
-
-      socket.addEventListener("message", (event) => {
-        try {
-          const message = JSON.parse(event.data as string) as ControlServerMessage;
-
-          if (message.type === "PONG") {
-            lastPongAt = Date.now();
-            if (lastPing?.id === message.id) {
-              setLatency(Math.round(performance.now() - lastPing.at));
-            }
-            return;
-          }
-
-          if (
-            message.type === "INITIAL_STATE" ||
-            message.type === "STATE_SYNC" ||
-            message.type === "CONTROL_STATE_CHANGED"
-          ) {
-            applyState(message.state);
-          }
-        } catch {
-          // Ignore malformed WebSocket messages.
+    if ("BroadcastChannel" in window) {
+      localChannel = new BroadcastChannel(LOCAL_CONTROL_CHANNEL);
+      localChannel.addEventListener("message", (event: MessageEvent<LocalControlMessage>) => {
+        if (event.data?.type === "LOCAL_CONTROL_STATE") {
+          applyState(event.data.state);
         }
       });
-
-      socket.addEventListener("close", () => {
-        stopHeartbeat();
-        if (cancelled) return;
-
-        setStatus("disconnected");
-        setLatency(null);
-        const delay = Math.min(1000 * 2 ** attempt, MAX_RECONNECT_DELAY_MS);
-        attempt += 1;
-        reconnectTimer = window.setTimeout(connect, delay);
-      });
-
-      socket.addEventListener("error", () => {
-        socket.close();
-      });
     }
 
-    if (ENABLE_DEV_HTTP_FALLBACK) {
-      if ("BroadcastChannel" in window) {
-        localChannel = new BroadcastChannel(LOCAL_CONTROL_CHANNEL);
-        localChannel.addEventListener("message", (event: MessageEvent<LocalControlMessage>) => {
-          if (event.data?.type === "LOCAL_CONTROL_STATE") {
-            applyState(event.data.state);
-            setStatus("connected");
-          }
-        });
-      }
+    void resyncCurrentState();
 
-      void loadInitialState();
-      fallbackTimer = window.setInterval(() => void loadInitialState(), DEV_FALLBACK_INTERVAL_MS);
-
+    if (!ABLY_SUBSCRIBE_KEY) {
+      queueMicrotask(() => {
+        if (!cancelled) setStatus("disconnected");
+      });
       return () => {
         cancelled = true;
         localChannel?.close();
-        stopFallback();
       };
     }
 
-    void loadInitialState();
-    connect();
+    const ably = new Realtime({
+      key: ABLY_SUBSCRIBE_KEY,
+      clientId: `zone04-display-${crypto.randomUUID()}`,
+    });
+
+    const channel = ably.channels.get(CONTROL_STATE_CHANNEL);
+
+    const onMessage = (message: InboundMessage) => {
+      if (!isControlStateChangedMessage(message.data)) return;
+      applyState(message.data.state);
+    };
+
+    const onConnectionState = (change: ConnectionStateChange) => {
+      if (cancelled) return;
+
+      if (change.current === "connected") {
+        setStatus("connected");
+        void ably.connection.ping().then(setLatency).catch(() => setLatency(null));
+
+        if (
+          change.previous === "disconnected" ||
+          change.previous === "suspended" ||
+          change.previous === "failed"
+        ) {
+          void resyncCurrentState();
+        }
+        return;
+      }
+
+      if (change.current === "connecting" || change.current === "initialized") {
+        setStatus("connecting");
+        return;
+      }
+
+      setStatus("disconnected");
+      setLatency(null);
+    };
+
+    ably.connection.on(onConnectionState);
+
+    void channel.subscribe(CONTROL_STATE_EVENT, onMessage).catch(() => {
+      if (!cancelled) setStatus("disconnected");
+    });
 
     return () => {
       cancelled = true;
-      stopHeartbeat();
-      stopFallback();
-      if (reconnectTimer) window.clearTimeout(reconnectTimer);
-      socketRef.current?.close();
+      localChannel?.close();
+      channel.unsubscribe(CONTROL_STATE_EVENT, onMessage);
+      ably.connection.off(onConnectionState);
+      ably.close();
     };
   }, [applyState]);
 

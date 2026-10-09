@@ -3,10 +3,8 @@ import { advanceControlState } from "./control-state";
 import { publishControlState } from "./control-pubsub";
 import { getMediaType, mediaAssetResponse } from "./media";
 import { prisma } from "./prisma";
-import { uploadStoredObject } from "./uploads";
 
 type CreateMediaOptions = {
-  folder: string;
   expectedType?: MediaType;
   groupSlug?: string | null;
 };
@@ -18,109 +16,32 @@ export function jsonNoStore(data: unknown, status = 200) {
   });
 }
 
-export async function createMediaFromFormData(
-  formData: FormData,
-  { folder, expectedType, groupSlug }: CreateMediaOptions,
-) {
-  const files = formData.getAll("files").filter((file): file is File => file instanceof File);
-
-  if (files.length === 0) {
-    return jsonNoStore({ error: "No files provided" }, 400);
-  }
-
-  if (groupSlug) {
-    const group = await prisma.mediaGroup.findUnique({ where: { slug: groupSlug } });
-    if (!group) return jsonNoStore({ error: "Media group not found" }, 404);
-  }
-
-  if (expectedType) {
-    const requiredType = expectedType;
-    const invalidFile = files.find(
-      (file) => getMediaType(file.type || "application/octet-stream") !== requiredType,
-    );
-
-    if (invalidFile) {
-      return jsonNoStore(
-        { error: `File ${invalidFile.name} is not a valid ${requiredType.toLowerCase()} asset` },
-        400,
-      );
-    }
-  }
-
-  const createdAssets = [];
-
-  for (const file of files) {
-    const stored = await uploadStoredObject(file, folder);
-    const mediaType = expectedType ?? getMediaType(stored.contentType);
-    const asset = await prisma.mediaAsset.create({
-      data: {
-        originalName: file.name,
-        objectName: stored.objectName,
-        contentType: stored.contentType,
-        size: stored.size,
-        mediaType,
-      },
-    });
-
-    if (groupSlug) {
-      const lastItem = await prisma.mediaGroupItem.findFirst({
-        where: { group: { slug: groupSlug } },
-        orderBy: { position: "desc" },
-      });
-
-      const item = await prisma.mediaGroupItem.create({
-        data: {
-          group: { connect: { slug: groupSlug } },
-          asset: { connect: { id: asset.id } },
-          position: (lastItem?.position ?? -1) + 1,
-        },
-      });
-
-      await prisma.mediaGroup.update({
-        where: { slug: groupSlug },
-        data: {
-          activeIndex: item.position,
-          activeItemId: item.id,
-        },
-      });
-    }
-
-    createdAssets.push(asset);
-  }
-
-  // One publish for the whole batch rather than one per file: every message
-  // carries the complete state anyway, so per-file sends would push the same
-  // payload to every wall N times over.
-  await publishControlState(await advanceControlState());
-
-  return jsonNoStore(
-    {
-      success: true,
-      assets: createdAssets.map(mediaAssetResponse),
-    },
-    201,
-  );
-}
-
 export async function createMediaFromMetadata(body: {
   originalName: string;
   objectName: string;
   contentType: string;
   size: number;
   groupSlug?: string | null;
-}) {
+}, { expectedType, groupSlug: defaultGroupSlug }: CreateMediaOptions = {}) {
   const { originalName, objectName, contentType, size, groupSlug } = body;
+  const effectiveGroupSlug = groupSlug ?? defaultGroupSlug;
 
   if (!originalName || !objectName || !contentType || typeof size !== "number") {
     return jsonNoStore({ error: "Missing required metadata fields" }, 400);
   }
 
-  if (groupSlug) {
-    const group = await prisma.mediaGroup.findUnique({ where: { slug: groupSlug } });
-    if (!group) return jsonNoStore({ error: "Media group not found" }, 404);
+  const mediaType = getMediaType(contentType);
+  if (expectedType && mediaType !== expectedType) {
+    return jsonNoStore(
+      { error: `File ${originalName} is not a valid ${expectedType.toLowerCase()} asset` },
+      400,
+    );
   }
 
-  const mediaType = getMediaType(contentType);
+  if (effectiveGroupSlug) {
+    const group = await prisma.mediaGroup.findUnique({ where: { slug: effectiveGroupSlug } });
+    if (!group) return jsonNoStore({ error: "Media group not found" }, 404);
+  }
 
   const asset = await prisma.mediaAsset.create({
     data: {
@@ -132,22 +53,22 @@ export async function createMediaFromMetadata(body: {
     },
   });
 
-  if (groupSlug) {
+  if (effectiveGroupSlug) {
     const lastItem = await prisma.mediaGroupItem.findFirst({
-      where: { group: { slug: groupSlug } },
+      where: { group: { slug: effectiveGroupSlug } },
       orderBy: { position: "desc" },
     });
 
     const item = await prisma.mediaGroupItem.create({
       data: {
-        group: { connect: { slug: groupSlug } },
+        group: { connect: { slug: effectiveGroupSlug } },
         asset: { connect: { id: asset.id } },
         position: (lastItem?.position ?? -1) + 1,
       },
     });
 
     await prisma.mediaGroup.update({
-      where: { slug: groupSlug },
+      where: { slug: effectiveGroupSlug },
       data: {
         activeIndex: item.position,
         activeItemId: item.id,
@@ -165,4 +86,3 @@ export async function createMediaFromMetadata(body: {
     201,
   );
 }
-

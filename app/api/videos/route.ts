@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { createMediaFromFormData } from "@/lib/media-api";
+import { createMediaFromMetadata, jsonNoStore } from "@/lib/media-api";
 import { mediaAssetWithPipelinesResponse } from "@/lib/media";
 import { prisma } from "@/lib/prisma";
 
@@ -23,11 +23,17 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const formData = await request.formData();
-  const groupSlug = formData.get("groupSlug");
-  return createMediaFromFormData(formData, {
-    folder: "videos",
-    expectedType: "VIDEO",
-    groupSlug: typeof groupSlug === "string" ? groupSlug : null,
-  });
+  const contentType = request.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    return jsonNoStore(
+      {
+        error:
+          "Server-side video uploads are disabled. Upload directly to Cloudinary, then register asset metadata as JSON.",
+      },
+      415,
+    );
+  }
+
+  const body = await request.json().catch(() => ({}));
+  return createMediaFromMetadata(body, { expectedType: "VIDEO" });
 }

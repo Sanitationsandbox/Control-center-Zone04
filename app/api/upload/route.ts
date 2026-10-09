@@ -52,55 +52,14 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    await ensureUploadDir();
-    const formData = await request.formData();
-    const files = formData.getAll("files") as File[];
-
-    if (!files || files.length === 0) {
-      return NextResponse.json({ error: "No files provided" }, { status: 400 });
-    }
-
-    const currentAssets = await readMetadata();
-    const newAssets: Asset[] = [];
-
-    for (const file of files) {
-      if (!file || !(file instanceof File)) continue;
-
-      const buffer = Buffer.from(await file.arrayBuffer());
-      const timestamp = Date.now();
-      const ext = path.extname(file.name);
-      const baseName = path.basename(file.name, ext);
-      
-      // Sanitize base name to make it filesystem safe
-      const sanitizedName = baseName.replace(/[^a-zA-Z0-9-_]/g, "_");
-      const uuid = crypto.randomUUID();
-      const uniqueFilename = `${sanitizedName}-${uuid}${ext}`;
-      const filePath = path.join(UPLOAD_DIR, uniqueFilename);
-
-      await fs.writeFile(filePath, buffer);
-
-      const asset: Asset = {
-        id: uuid,
-        name: file.name,
-        filename: uniqueFilename,
-        url: `/uploads/${uniqueFilename}`,
-        size: file.size,
-        type: file.type || "application/octet-stream",
-        uploadedAt: timestamp,
-      };
-
-      newAssets.push(asset);
-    }
-
-    const updatedAssets = [...newAssets, ...currentAssets];
-    await writeMetadata(updatedAssets);
-
-    return NextResponse.json({ success: true, assets: newAssets });
-  } catch (error) {
-    console.error("POST upload error:", error);
-    return NextResponse.json({ error: "Failed to upload files" }, { status: 500 });
-  }
+  void request;
+  return NextResponse.json(
+    {
+      error:
+        "Server-side uploads are disabled. Request a signature from /api/upload/sign, upload directly to Cloudinary, then register metadata with /api/media.",
+    },
+    { status: 415 },
+  );
 }
 
 export async function DELETE(request: NextRequest) {
