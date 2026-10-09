@@ -45,7 +45,7 @@ function toOptions(groups: MediaGroupResponse[]): ControlOption[] {
 }
 
 export function ControlCenter({ initialState }: ControlCenterProps) {
-  const { state, status: socketStatus } = useControlSocket(initialState);
+  const { state } = useControlSocket(initialState);
   const [isSending, setIsSending] = useState(false);
   const [status, setStatus] = useState("");
 
@@ -105,11 +105,6 @@ export function ControlCenter({ initialState }: ControlCenterProps) {
   return (
     <main className={styles.page}>
       <div className={styles.glow} aria-hidden="true" />
-      {socketStatus === "connected" ? null : (
-        <p className={styles.connection} role="status">
-          {socketStatus === "connecting" ? "Connecting…" : "Reconnecting…"}
-        </p>
-      )}
       {selectedOption ? (
         <DetailScreen
           option={selectedOption}
